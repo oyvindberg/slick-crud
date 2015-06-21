@@ -2,6 +2,7 @@ import aether.Aether._
 import sbt.Keys._
 import sbt._
 import sbtrelease.ReleasePlugin._
+import com.typesafe.sbt.SbtStartScript
 
 object Build extends sbt.Build {
 
@@ -26,7 +27,7 @@ object Build extends sbt.Build {
       "-Ywarn-unused-import"
     ),
     organization       := "no.penger",
-    scalaVersion       := "2.11.5"
+    scalaVersion       := "2.11.6"
   )
 
   lazy val buildSettings = Defaults.coreDefaultSettings ++ aetherSettings ++ releaseSettings ++ Seq(
@@ -82,6 +83,8 @@ object Build extends sbt.Build {
     "com.h2database"               % "h2"                         % "1.4.183",
     scalatest,
     testLogger
+  ).settings(
+    SbtStartScript.startScriptForClassesSettings
   )
 
   lazy val root = Project(s"$basename-parent", file("."),

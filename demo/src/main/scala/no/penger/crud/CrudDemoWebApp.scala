@@ -9,6 +9,7 @@ import unfiltered.response._
 
 import scala.slick.ast.JoinType
 import scala.slick.driver.H2Driver
+import scala.util.Properties
 import scala.xml.NodeSeq
 
 trait StoreDomain{
@@ -222,6 +223,8 @@ object CrudDemoWebApp extends Plan with LazyLogging {
   override lazy val intent = instance.intent orElse defaultIntent
 }
 
-object Runner extends App {
-  unfiltered.jetty.Server.local(8080).plan(CrudDemoWebApp).run()
+object Runner extends App with LazyLogging {
+  val port = Properties.envOrElse("PORT", "8080").toInt
+  logger.info(s"Starting on port $port")
+  unfiltered.jetty.Server.http(port).plan(CrudDemoWebApp).run()
 }

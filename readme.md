@@ -17,6 +17,8 @@ slick-crud is available for slick 2.1.0 on scala 2.11.
  
 Initial idea and implementation by [@teigen][teigen], maintenance/rewrite by [@elacin][elacin]
 
+[Demo application](https://slick-crud.herokuapp.com)
+
 ## Usage
 
 slick-crud requires tables with a single (non-composite) primary key. It also requires instances of `SimpleCell`
