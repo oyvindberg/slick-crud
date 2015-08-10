@@ -13,7 +13,7 @@ It provides the following features:
 - Notifications of (failed) updates
 - (Optional) Changelog in a database with all updates (not creates and deletes for now)
 
-slick-crud is available for slick 2.1.0 on scala 2.11.
+slick-crud is available for slick 3.0.0 on scala 2.11.
  
 Initial idea and implementation by [@teigen][teigen], maintenance/rewrite by [@elacin][elacin]
 
