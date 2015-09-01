@@ -1,0 +1,89 @@
+package com.olvind.crud
+package frontend
+
+import japgolly.scalajs.react._
+import japgolly.scalajs.react.extra._
+import japgolly.scalajs.react.vdom.prefix_<^._
+
+import scalacss.ScalaCssReact._
+
+object EditorLinkedMultipleRows
+  extends EditorBaseMultipleRows
+  with EditorBaseUpdaterLinked {
+
+  case class Props (
+    base:       EditorBaseProps,
+    linkedRows: StrLinkedRows,
+    reload:     Callback,
+    createElem: ReactElement) extends PropsBUL {
+    def rows = linkedRows.rows
+  }
+
+  case class State(
+    showCreate: Boolean,
+    cachedDataU: U[CachedData]) extends StateB[State]{
+
+    override def withCachedData(cd: CachedData) =
+      copy(cachedDataU = cd)
+  }
+
+  final case class Backend($: WrapBackendScope[Props, State])
+    extends BackendBUL[Props, State]
+    with OnUnmount {
+
+    val toggleShowCreate: ReactEvent ⇒ Callback =
+      e ⇒ $.modState(S ⇒ S.copy(showCreate = !S.showCreate))
+
+    override def render(P: Props, S: State): ReactElement = {
+      <.div(
+        TableStyle.container,
+        EditorToolbar()(EditorToolbar.Props(
+          table             = $.props.table,
+          rows              = P.rows.size,
+          cachedDataU       = S.cachedDataU,
+          filterU           = uNone,
+          openFilterDialogU = uNone,
+          isLinkedU         = $.props.linkedRows,
+          refreshU          = reInit,
+          showAllU          = showAllRows,
+          deleteU           = uNone,
+          showCreateU       = (S.showCreate, toggleShowCreate),
+          customElemU       = uNone
+        )),
+        <.div(
+          TableStyle.table,
+          <.div(
+            TableStyle.nested,
+            P.createElem.some.filter(_ ⇒ S.showCreate)
+          ),
+          TableHeader()(TableHeader.Props(
+            table    = P.table,
+            sortingU = uNone,
+            onSort   = uNone
+          )),
+          P.rows.map(
+            r ⇒ TableRow(r)(TableRow.Props(
+              P.table,
+              r,
+              S.cachedDataU,
+              r.idOpt.asUndef.map(updateValue),
+              showSingleRow
+            ))
+          )
+        )
+      )
+    }
+  }
+
+  val component = ReactComponentB[Props]("EditorMultipleRows")
+    .initialState_P(P ⇒ State(showCreate = false, P.base.cachedDataF.currentValueU))
+    .backend($ ⇒ Backend(WrapBackendScope($)))
+    .render($ ⇒ $.backend.render($.props, $.state))
+    .configure(ComponentUpdates.inferred("EditorMultipleRows"))
+    .componentDidMount(_.backend.init)
+    .build
+
+  def apply(l: StrLinkedRows) =
+    component.withKey(l.fromCol.toString + "_" + l.toCol.toString + l.rows.size)
+}
+
