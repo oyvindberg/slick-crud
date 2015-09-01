@@ -1,93 +1,101 @@
-import aether.Aether._
+import org.scalajs.sbtplugin.ScalaJSPlugin
+import org.scalajs.sbtplugin.cross.CrossProject
 import sbt.Keys._
 import sbt._
 import sbtrelease.ReleasePlugin._
-import com.typesafe.sbt.SbtStartScript
 
 object Build extends sbt.Build {
+  import ScalaJSPlugin.{autoImport ⇒ sjs}, sjs.toScalaJSGroupID
 
-  val basename = "slick-crud"
+  object versions {
+    def snap(s: String) = s + "-SNAPSHOT"
+    val scalaJsReact = "0.11.1"
+    val scalaCss     = "0.4.1"
+    val components   = "0.5.0"
+    val unfiltered   = "0.8.4"
+    val slick        = "3.0.2"
+  }
 
-  override def settings = super.settings ++ Seq(
-    scalacOptions ++= Seq(
-//      "-deprecation",
-      "-encoding", "UTF-8",
-      "-feature",
-      "-language:existentials",
-      "-language:higherKinds",
-      "-language:implicitConversions",
-      "-unchecked",
-//      "-Xfatal-warnings",
-      "-Xlint",
-      "-Yno-adapted-args",
-      "-Ywarn-dead-code",
-      "-Ywarn-numeric-widen",
-      "-Ywarn-value-discard",
-      "-Xfuture",
-      "-Ywarn-unused-import"
+  val sharedTestDeps = Def.setting(
+    "org.scalatest" %%% "scalatest"     % "3.0.0-M15" % Test
+  )
+
+  val sharedDeps = Def.setting(Seq(
+    "com.lihaoyi"   %%% "upickle"       % "0.3.7",
+    "com.lihaoyi"   %%% "autowire"      % "0.2.5",
+    "com.olvind"    %%% "stringifiers"  % "0.2"
+  ))
+
+  override val settings = super.settings ++ Seq(
+    organization         := "com.olvind",
+    scalaVersion         := "2.11.8",
+    licenses             += ("Apache-2.0", url("http://opensource.org/licenses/Apache-2.0")),
+    scalacOptions       ++= Seq("-encoding", "UTF-8", "-feature", "-language:existentials", "-language:higherKinds", "-language:implicitConversions", "-unchecked", "-Xlint", "-Yno-adapted-args", "-Ywarn-dead-code", "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Xfuture", "-deprecation") //"-Xlog-implicits"
+  )
+
+  lazy val buildSettings = Defaults.coreDefaultSettings ++ releaseSettings ++ Seq(
+    updateOptions       := updateOptions.value.withCachedResolution(cachedResoluton = true)
+  )
+
+  val crudShared = CrossProject("crud", file("crud"), sjs.CrossType.Full)
+    .settings(libraryDependencies ++= sharedDeps.value :+ sharedTestDeps.value)
+
+  val crudJs = crudShared.js.settings(
+    libraryDependencies ++= Seq(
+      "com.github.japgolly.scalajs-react"              %%% "extra"    % versions.scalaJsReact,
+      "com.github.japgolly.scalacss"                   %%% "core"     % versions.scalaCss,
+      "com.github.japgolly.scalacss"                   %%% "ext-react" % versions.scalaCss,
+     ("com.github.chandu0101.scalajs-react-components" %%% "core"     % versions.components).excludeAll(ExclusionRule(organization = "com.github.japgolly.scalacss"))
     ),
-    organization       := "no.penger",
-    scalaVersion       := "2.11.6"
+    sjs.emitSourceMaps := true,
+    /* create javascript launcher. Searches for an object extends JSApp */
+    sjs.persistLauncher := true,
+    skip in sjs.packageJSDependencies := true,
+    /* same name for generated js file for fastOpt as for fullOpt */
+    artifactPath in (Compile, sjs.fastOptJS) :=
+      ((crossTarget in (Compile, sjs.fastOptJS)).value / ((moduleName in sjs.fastOptJS).value + "-opt.js")),
+
+    publish := {},
+    publishLocal := {}
   )
 
-  lazy val buildSettings = Defaults.coreDefaultSettings ++ aetherSettings ++ releaseSettings ++ Seq(
-    updateOptions       := updateOptions.value.withCachedResolution(cachedResoluton = true),
-    publishMavenStyle   := true,
-    publish            <<= deploy,
-    publishTo          <<= version { v ⇒
-      val end = if(v endsWith "SNAPSHOT") "snapshot" else "release"
-      Some("Finn-" + end at "http://mavenproxy.finntech.no/finntech-internal-" + end)
-    }
+  /* make `package` depend on fullOptJS, and copy resulting artifacts into crudJVM */
+  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fullOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
+    case (_, fromDir, toDir) ⇒
+      val files: Array[(File, File)] = IO listFiles fromDir collect {
+        case f if f.name endsWith ".js" ⇒ // ← also match «foo.js.map»
+          (f, toDir / "classes" / f.name)
+      }
+      IO.copy(files, overwrite = true)
+  }
+
+  lazy val crudJvm: Project = crudShared.jvm.settings(
+    testFrameworks            += new TestFramework("com.novocode.junit.JUnitFramework"),
+    testOptions               += Tests.Argument(TestFrameworks.JUnit, "-q", "-v", "-s", "-a"),
+    libraryDependencies      ++= Seq(
+      "com.typesafe.scala-logging"  %% "scala-logging"     % "3.1.0",
+      "org.scala-lang"               % "scala-reflect"     % scalaVersion.value,
+      "com.typesafe.slick"          %% "slick"             % versions.slick,
+      "net.databinder"              %% "unfiltered-filter" % versions.unfiltered,
+
+      "javax.servlet"                % "javax.servlet-api" % "3.1.0"        % Provided,
+
+      "com.typesafe.slick"          %% "slick-testkit"     % versions.slick % Test,
+      "com.novocode"                 % "junit-interface"   % "0.10"         % Test,
+      "org.slf4j"                    % "slf4j-simple"      % "1.7.7"        % Test,
+      "com.h2database"               % "h2"                % "1.4.186"      % Test
+    ),
+    (packageBin in Compile) <<= (packageBin in Compile) dependsOn copyJsResources(crossTarget)
   )
 
-  val scalaReflect = "org.scala-lang" % "scala-reflect"
-
-  def project(suffix: String, projectDeps: sbt.ClasspathDep[sbt.ProjectReference]*)(deps: ModuleID*) =
-    Project(
-      id           = s"$basename-$suffix",
-      base         = file(s"./$suffix"),
-      dependencies = projectDeps,
-      settings     = buildSettings ++ Seq(libraryDependencies ++= deps :+ scalaReflect % scalaVersion.value)
-    )
-
-  val unfilteredVersion   = "0.8.4"
-
-  val scalatest  = "org.scalatest" %% "scalatest" % "2.2.2" % "test"
-  val testLogger = "org.slf4j" % "slf4j-simple" % "1.7.7"
-
-  lazy val crud           = project("core")(
-    "com.typesafe.slick"          %% "slick"                      % "3.0.0",
-    scalatest,
-    testLogger % "test"
-  )
-
-  lazy val crudUnfiltered = project("unfiltered", crud)(
-    "net.databinder"              %% "unfiltered-filter"          % unfilteredVersion,
-    "com.jteigen"                 %% "linx"                       % "0.2",
-    "javax.servlet"                % "javax.servlet-api"          % "3.1.0" % "provided;test"
-  )
-
-  lazy val crudLogging    = project("logging", crud)(
-    "com.typesafe.scala-logging" %% "scala-logging"               % "3.1.0"
-  )
-
-  lazy val crudChangelog  = project("changelog", crud)(
-    "joda-time" % "joda-time"    % "2.5",
-    "org.joda"  % "joda-convert" % "1.7"
-  )
-
-  lazy val crudAll        = project("all", crudUnfiltered, crudChangelog, crudLogging)()
-
-  lazy val crudDemo       = project("demo", crudAll)(
-    "net.databinder"              %% "unfiltered-jetty"           % unfilteredVersion,
-    "com.h2database"               % "h2"                         % "1.4.186",
-    scalatest,
-    testLogger
-  ).settings(
-    SbtStartScript.startScriptForClassesSettings
-  )
-
-  lazy val root = Project(s"$basename-parent", file("."),
-    settings = buildSettings :+ (mainClass in (Compile, run) := Some("no.penger.crud.Runner")))
-    .aggregate(crud, crudLogging, crudChangelog, crudUnfiltered, crudAll, crudDemo).dependsOn(crudDemo)
+  lazy val demo = (project in file("demo"))
+    .settings(
+      name                 := "slick-crud-demo",
+      libraryDependencies ++= Seq(
+        "net.databinder" %% "unfiltered-jetty" % "0.8.4",
+        "org.slf4j"       % "slf4j-simple"     % "1.7.7",
+        "com.h2database"  % "h2"               % "1.4.186"
+      ),
+      (run in Compile) <<= (run in Compile) dependsOn copyJsResources(crossTarget)
+    ).dependsOn(crudJvm)
 }
