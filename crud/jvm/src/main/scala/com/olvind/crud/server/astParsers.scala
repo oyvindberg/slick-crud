@@ -5,6 +5,7 @@ import com.typesafe.scalalogging.LazyLogging
 import slick.ast._
 import slick.compiler.QueryCompiler
 import slick.lifted._
+import slick.util.Dumpable
 
 trait astParsers extends slickIntegration {
 
@@ -33,17 +34,17 @@ trait astParsers extends slickIntegration {
       }
 
     /* resolve all column names for the given query */
-    def colNames[E, U, C[_]](q: Query[U, E, C]): Seq[ColumnInfo] =
+    def colNames[E, U, C[_]](q: Query[U, E, C]): Seq[ColumnRef] =
       compileAndIndex(q){
         case (_, resolver: IndexedResolver, cols: Node) ⇒
           resolver(cols)
       }
 
-    def colName[E, U, C[_], T: FlatRepShape](q: Query[U, E, C])(col: U ⇒ Rep[T]): ColumnInfo =
+    def colName[E, U, C[_], T: FlatRepShape](q: Query[U, E, C])(col: U ⇒ Rep[T]): ColumnRef =
       colNames(q map col).head
 
     /* resolve the name of `rep` */
-    def colName[E, U, C[_]](q: Query[U, E, C], rep: Rep[Any]): ColumnInfo =
+    def colName[E, U, C[_]](q: Query[U, E, C], rep: Rep[Any]): ColumnRef =
       compileAndIndex(q){
         case (gen: Symbol, resolver: IndexedResolver, _) ⇒
           /**
@@ -73,15 +74,15 @@ trait astParsers extends slickIntegration {
 
     private final class IndexedResolver(lookup: Map[Symbol, Node], sql: String) extends LazyLogging {
 
-      def apply(cols: Node): Seq[ColumnInfo] =
+      def apply(cols: Node): Seq[ColumnRef] =
         resolveColumns(cols) <| (ret ⇒ logger debug withSql(s"Resolved $ret"))
 
       def withSql(s: String) = s"$s (for sql $sql)"
 
       /* any error in this piece of code is critical - so we just fail early */
-      def panic(msg: String) = throw new QueryParseException(withSql(msg))
+      def panic(under: Option[Node], msg: String) = throw new QueryParseException(withSql(msg))
 
-      def resolveColumns(cols: Node): Seq[ColumnInfo] =
+      def resolveColumns(cols: Node): Seq[ColumnRef] =
         cols match {
           case n: Select ⇒
             Seq(resolveOneColumn(n))
@@ -91,18 +92,18 @@ trait astParsers extends slickIntegration {
             resolveColumns(n.child)
         }
 
-      def resolveOneColumn(c: Node): ColumnInfo =
+      def resolveOneColumn(c: Node): ColumnRef =
         innerResolve(c).toList match {
           case Nil ⇒
-            panic(s"Couldn't resolve column $c")
+            panic(c.some, s"Couldn't resolve column $c")
           case head :: Nil ⇒
             logger debug s"Resolved column $head"
             head
           case tooMany ⇒
-            panic(s"Resolved column $c to too many columns $tooMany")
+            panic(c.some, s"Resolved column $c to too many columns $tooMany")
         }
 
-      def innerResolve(ref: Node): Seq[ColumnInfo] = {
+      def innerResolve(ref: Node): Seq[ColumnRef] = {
         logger trace s"current $ref"
         ref match {
           /* End state: This is where we find a columns' table and name */
@@ -124,13 +125,13 @@ trait astParsers extends slickIntegration {
                       case Some(StructNode(ch))          ⇒ ch
                       case Some(Pure(StructNode(ch), _)) ⇒ ch
                       case other                         ⇒
-                        panic(s"Unexpected select $other for comprehension $c while looking up $colRef")
+                        panic(c.some, s"Unexpected select $other for comprehension $c while looking up $colRef")
                     }
                     /* pick the column referenced by `colRef` */
                     val col = allCols collectFirst {
                       case (`colRef`, found) ⇒ found
                     } getOrElse
-                      panic(s"Couldn't find $colRef among $allCols for comprehension $c")
+                      panic(c.some, s"Couldn't find $colRef among $allCols for comprehension $c")
 
                     /* resolve picked column */
                     innerResolve(col)
@@ -143,7 +144,7 @@ trait astParsers extends slickIntegration {
                       case Some(ProductNode(ch))          ⇒ ch
                       case Some(Pure(ProductNode(ch), _)) ⇒ ch
                       case other                          ⇒
-                        panic(s"Unexpected select $other for comprehension $c while looking up $colRef")
+                        panic(c.some, s"Unexpected select $other for comprehension $c while looking up $colRef")
                     }
                     /* pick the column with the given (one-based) index */
                     val col: Node = allCols(idx - 1)
@@ -166,11 +167,11 @@ trait astParsers extends slickIntegration {
                   case (fn, args) ⇒
                     s"$fn(${args.mkString(", ")})"
                 }
-                Seq(ColumnInfo(TableName("<function>"), ColumnName(rendered), isAutoInc = false))
+                Seq(ColumnRef(TableName("<function>"), ColumnName(rendered), isAutoInc = false))
             }
 
           case LiteralNode(value) ⇒
-            Seq(ColumnInfo(TableName("<literal>"), ColumnName(value.toString), isAutoInc = false))
+            Seq(ColumnRef(TableName("<literal>"), ColumnName(value.toString), isAutoInc = false))
 
           case RebuildOption(_, data) ⇒
             innerResolve(data)
@@ -182,7 +183,7 @@ trait astParsers extends slickIntegration {
               case "Some(1) = Some(1)" ⇒ Seq(rs(1))
               case head ⇒
                 val n = s"if ($head) then ${ns(1)}${ns.drop(2).headOption.fold("")(s ⇒ " else " + s)}"
-                Seq(ColumnInfo(TableName("<function>"), ColumnName(n), false))
+                Seq(ColumnRef(TableName("<function>"), ColumnName(n), false))
             }
 
           case n: UnaryNode ⇒
@@ -192,18 +193,21 @@ trait astParsers extends slickIntegration {
         }
       }
 
-      def tableName(s: Symbol): TableName =
-        lookup get s match {
-          case Some(TableNode(_, name, _, _, _)) ⇒
-            TableName(name)
-          case Some(Comprehension(Seq((_, TableNode(_, name, _, _, _))), _, _, _, _, _, _)) ⇒
-            TableName(name)
-          case other ⇒
-            panic(s"No table found for $s (found $other)")
+      def tableName(s: Symbol): TableName = {
+        def go(n: Node): TableName = n match {
+          case TableNode(_, name, _, _, _) => TableName(name)
+          case Comprehension(Seq((_, one)), _, _, _, _, _, _) => go(one)
+          case other: Dumpable =>
+            panic(other.some, s"No table found for $s (found $other)")
         }
 
+        lookup get s match {
+          case Some(node) ⇒ go(node)
+          case None       ⇒ panic(None, s"No node found for $s")
+        }
+      }
       def toColumnInfo(tableRef: Symbol, fs: FieldSymbol) =
-        ColumnInfo(
+        ColumnRef(
           tableName(tableRef),
           ColumnName(fs.name),
           fs.options contains ColumnOption.AutoInc

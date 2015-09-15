@@ -14,7 +14,7 @@ trait columnPickers extends astParsers {
   private [server] object ColumnPicker {
     class ColumnPickerException private[ColumnPicker](val message: String) extends Exception
 
-    def apply[U, E](from: Query[U, E, Seq], colInfo: ColumnInfo)(table: Any): Rep[Any] = {
+    def apply[U, E](from: Query[U, E, Seq], colInfo: ColumnRef)(table: Any): Rep[Any] = {
       columnsExtract(table) find  {
         col ⇒  AstParser.colName(from, col) =:= colInfo
       } getOrElse (throw new ColumnPickerException(s"Column $colInfo not found"))

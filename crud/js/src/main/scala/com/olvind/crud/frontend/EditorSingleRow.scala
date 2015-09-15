@@ -18,9 +18,10 @@ object EditorSingleRow
   ) extends PropsB
 
   final case class State(
-    data:        DataState,
-    cachedDataU: U[CachedData],
-    linkedRowsU: U[Seq[StrLinkedRows]]
+    validationFails: Seq[ValidationError],
+    data:            DataState,
+    cachedDataU:     U[CachedData],
+    linkedRowsU:     U[Seq[StrLinkedRows]]
   ) extends StateBP[State]{
 
     override def withDataState(data: DataState) =
@@ -28,6 +29,9 @@ object EditorSingleRow
 
     override def withCachedData(cd: CachedData) =
       copy(cachedDataU = cd)
+
+    override def withValidationFails(ves: Seq[ValidationError]) =
+      copy(validationFails = ves)
   }
 
   final case class Backend($: WrapBackendScope[Props, State])
@@ -45,20 +49,32 @@ object EditorSingleRow
     }
 
     override val loadInitialData: Callback =
-      asyncCb(s"Couldn't load row ${$.props.rowId}", remote.readRow($.props.base.userInfo, $.props.rowId).call())
-        .commit(read ⇒ setData(HasDataState(read.row), Callback.empty))
+      asyncCb.applyEither(s"Couldn't load row ${$.props.rowId}", remote.readRow($.props.base.userInfo, $.props.rowId).call())()
+        .commit(read ⇒ read.row match {
+          case Some(row) => setData(HasDataState(row), Callback.empty)
+          case None      => handleNoRowFoundOnUpdate($.props.rowId)
+        } )
+
+    override def handleNoRowFoundOnUpdate(id: StrRowId): Callback =
+      setData(
+        ErrorState(CrudException(
+          $.props.editorDesc.editorId,
+          ErrorMsg(s"No row found with id ${$.props.rowId}"),
+          "")),
+        Callback.empty
+      )
 
     val refreshLinkedRows: Callback =
-      asyncCb(s"Couldn't read linked rows for ${$.props.rowId}", remote.readLinkedRows($.props.base.userInfo, $.props.rowId).call())
+      asyncCb.applyEither(s"Couldn't read linked rows for ${$.props.rowId}", remote.readLinkedRows($.props.base.userInfo, $.props.rowId).call())(ignoreError)
         .commit(read ⇒ $.modState(_.copy(linkedRowsU = read.linkedRows)))
 
     override def setData(data: DataState, cb: Callback): Callback =
       super.setData(data, cb) >> refreshLinkedRows
 
-    override def renderData(S: State, t: ClientTable, row: StrTableRow): ReactElement = {
+    override def renderData(S: State, t: EditorDesc, row: StrTableRow): ReactElement = {
       <.div(TableStyle.container)(
         EditorToolbar()(EditorToolbar.Props(
-          table             = $.props.table,
+          editorDesc             = $.props.editorDesc,
           rows              = 1,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
@@ -67,7 +83,7 @@ object EditorSingleRow
           refreshU          = reInit,
           showAllU          = showAllRows,
           deleteU           = deleteRow($.props.rowId),
-          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.table))),
+          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.editorDesc))),
           customElemU       = uNone
         )),
 
@@ -77,7 +93,7 @@ object EditorSingleRow
           S.linkedRowsU map {
             case linkedRows ⇒
               linkedRows map { linkedRow ⇒
-                val colIdx:  Int         = $.props.table.columns indexWhere (_.column =:= linkedRow.fromCol)
+                val colIdx:  Int         = $.props.editorDesc.columns indexWhere (_.ref =:= linkedRow.fromCol)
                 val colIdxU: U[Int]      = colIdx.undef filter (_ =/= -1)
                 val viaValU: U[StrValue] = colIdxU map row.values
 
@@ -88,23 +104,24 @@ object EditorSingleRow
       )
     }
 
-    def renderRow(S: State, t: ClientTable)(row: StrTableRow): ReactElement =
+    def renderRow(S: State, t: EditorDesc)(row: StrTableRow): ReactElement =
       <.div(
         TableStyle.table,
-        forColumns(t, row)(
-          (t, col, uid, uv) ⇒
+        forColumns(t, row, S.validationFails)(
+          (t, col, uid, uv, ue) ⇒
             <.div(
               TableStyle.row,
               TableHeaderCell(col)(TableHeaderCell.Props(
                 col,
-                t.name,
+                t.mainTable,
                 uNone
               )),
               TableCell(
+                clearValidationFail(row.idOpt),
                 S.cachedDataU,
                 row.idOpt.map(updateValue).asUndef,
                 showSingleRow)(
-                t, col, uid, uv)
+                t, col, uid, uv, ue)
             )
         )
       )
@@ -113,6 +130,7 @@ object EditorSingleRow
   val component = ReactComponentB[Props]("EditorSingleRow")
     .initialState_P(P ⇒
       State(
+        Seq.empty,
         InitialState,
         P.base.cachedDataF.currentValueU,
         uNone
@@ -124,6 +142,6 @@ object EditorSingleRow
     .componentDidMount(_.backend.init)
     .build
 
-  def apply(table: ClientTable, rowId: StrRowId) =
-    component.withKey(table.name.value + rowId.value)
+  def apply(editorDesc: EditorDesc, rowId: StrRowId) =
+    component.withKey(editorDesc.editorId.value + rowId.value)
 }

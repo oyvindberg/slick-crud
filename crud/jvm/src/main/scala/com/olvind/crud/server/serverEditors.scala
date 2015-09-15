@@ -7,100 +7,93 @@ import scala.concurrent.Future
 
 trait serverEditors extends crudActions {
 
-  case class ServerEditor[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
-                         (ref: TableRef[ID, TABLE, LP, P],
-                          n:   UpdateNotifier) extends Editor {
-    val tableName = ref.metadata.tableName
-    
-    override val clientTable = {
-      def colsFrom(m: Metadata[ID, _]): List[ClientColumn] =
-        m.cells.toList map {
-          case (ci, cell) ⇒
-            ClientColumn(ci, cell.typeName, cell.rendering, cell.isOptional, cell.isEditable)
-        }
+  final case class ServerEditor
+    [ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
+    (editorName: EditorName,
+     ref:        TableRef[ID, TABLE, LP, P],
+     n:          UpdateNotifier
+    ) extends ServerEditorT[ID, TABLE, LP, P](ref, n) {
 
-      ClientTable(
-        tableName,
-        colsFrom(ref.metadata),
-        colsFrom(ref.base.metadata),
-        ref.base.isEditable
+    override lazy val desc = ref.desc(editorName.some)
+
+    lazy val parentEditors: Map[EditorId, ParentServerEditor[ID, TABLE, _, _]] =
+      ref.parentRefs.mapValues(
+        r ⇒ new ParentServerEditor(r.asInstanceOf[TableRef[ID, TABLE, _, _]], n)
       )
-    }
+  }
 
-    private [serverEditors] case class run(user: UserInfo) {
+  private[serverEditors] final case class ParentServerEditor
+    [ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
+    (ref: TableRef[ID, TABLE, LP, P],
+     n:   UpdateNotifier) extends ServerEditorT[ID, TABLE, LP, P](ref, n){
 
-      def handleBad(f: CrudFailure) =
-        (f <| n.notifyFailure(user)) |> (_.left)
+    override lazy val desc = ref.desc(None)
+  }
 
-      def noFailure[T, S](action: DBIO[T])(handler: T ⇒ CrudFailure \/ S): Future[CrudFailure \/ S] =
-        db run action map handler recoverWith {
-          case t ⇒
-            Future.successful(
-              handleBad(
-                CrudException(ref.metadata.tableName, ErrorMsg(t), "Unexpected Error")
-              )
-            )
-        }
+  private[serverEditors] sealed abstract class ServerEditorT
+    [ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
+    (ref: TableRef[ID, TABLE, LP, P],
+     n:   UpdateNotifier) extends Editor {
 
-      def apply[T, F, S <: CrudSuccess]
-               (actionE:    F \/ DBIO[F \/ T],
-                handleGood: T ⇒ S,
-                mapError:   F ⇒ CrudFailure): Future[CrudFailure \/ S] =
-        actionE match {
-          case \/-(action) ⇒
-            noFailure(action){
-              case -\/ (error) ⇒ handleBad(mapError(error))
-              case  \/-(good)  ⇒ handleGood(good) <| n.notifySuccess(user) |> (_.right)
-            }
-          case -\/(error) ⇒ Future.successful(handleBad(mapError(error)))
-        }
-    }
+    def runDb[T](user: UserInfo)(action: DBIO[T]): Future[T] =
+      (db run action) <| (_.onFailure {
+        case t ⇒ n.notifyFailure(user)(CrudException(ref.id, ErrorMsg(t), "Unexpected Error"))
+      })
 
-    private implicit def promote1[F, T](t: F \/ DBIO[T]): F \/ DBIO[Nothing \/ T] = t.map(_.map(_.right))
+    def runEitherDb[L, R](user: UserInfo)(actionE: L \/ DBIO[R]): Future[L \/ R] =
+      liftEither(actionE.map(runDb(user)))
 
-    override def read(user: UserInfo, paramsOpt: Option[QueryParams]) =
-      run(user).noFailure(crudAction.readTable(ref, paramsOpt)){
-        rows ⇒ ReadTable(tableName, rows).right
+    def liftEither[L, R](from: L \/ Future[R]): Future[L \/ R] =
+      from match {
+        case -\/(left)   => Future.successful(left.left)
+        case  \/-(right) => right.map(_.right)
       }
 
-    override def create(user: UserInfo, params: Map[ColumnInfo, StrValue]) =
-      run(user)[Option[StrRowId], (ErrorMsg \/ Seq[(ColumnInfo, ErrorMsg)]), Created](
-        crudAction.create(ref.base, params),
-        idOpt  ⇒ Created(tableName, idOpt),
-        errors ⇒ CreateFailed(tableName, errors)
-      )
+    def logE[L <: CrudFailure, R <: CrudSuccess](user: UserInfo)(f: Future[L \/ R]) = f <| (_.onSuccess{
+      case -\/ (l) => n.notifyFailure(user)(l)
+      case  \/-(r) => n.notifySuccess(user)(r)
+    })
+
+    def log[R <: CrudSuccess](user: UserInfo)(f: Future[R]) =
+      f <| (_.onSuccess{case r => n.notifySuccess(user)(r)})
+
+    override def read(user: UserInfo, paramsOpt: Option[QueryParams]): Future[CrudFailure \/ ReadTable] =
+      runDb(user)(crudAction.readTable(ref, paramsOpt)).map{
+        case rows ⇒ ReadTable(ref.id, rows).right
+      } <| logE(user)
+
+    override def create(user: UserInfo, params: Map[ColumnRef, StrValue]) =
+      runEitherDb(user)(crudAction.create(ref.base, params)).map(_.bimap(
+        errors ⇒ CreateFailed(ref.id, errors),
+        idOpt  ⇒ Created(ref.id, idOpt)
+      )) <| logE(user)
 
     override def readRow(user: UserInfo, idStr: StrRowId) =
-      run(user)[StrTableRow, ErrorMsg, ReadRow](
-        crudAction.readRow(ref, idStr),
-        row   ⇒ ReadRow(tableName, row),
-        error ⇒ ReadRowFailed(tableName, idStr, error)
-      )
+      runEitherDb(user)(crudAction.readRow(ref, idStr)).map(_.bimap(
+        error ⇒ ReadRowFailed(ref.id, idStr, error),
+        row   ⇒ ReadRow(ref.id, idStr, row)
+      )) <| logE(user)
 
     override def readLinkedRows(user: UserInfo, idStr: StrRowId) =
-      run(user)[Seq[StrLinkedRows], ErrorMsg, ReadLinkedRows](
-        crudAction.readLinked(ref, idStr),
-        rows  ⇒ ReadLinkedRows(tableName, idStr, rows),
-        error ⇒ ReadRowFailed(tableName, idStr, error)
-      )
+      runEitherDb(user)(crudAction.readLinked(ref, idStr)).map(_.bimap(
+        error ⇒ ReadRowFailed(ref.id, idStr, error),
+        rows  ⇒ ReadLinkedRows(ref.id, idStr, rows)
+      )) <| logE(user)
 
-    override def update(user: UserInfo, idStr: StrRowId, col: ColumnInfo, value: StrValue) =
-      run(user)[(Option[StrValue], StrValue), ErrorMsg, Updated](
-        crudAction.update(ref, idStr, col, value),
-        {case (from, to) ⇒ Updated(col, idStr, from, to)},
-        error            ⇒ UpdateFailed(col, idStr, value, error)
-      )
-
+    override def update(user: UserInfo, idStr: StrRowId, col: ColumnRef, value: StrValue) =
+      runEitherDb(user)(crudAction.update(ref, idStr, col, value)).map(_.bimap(
+        error => UpdateFailed(ref.id, col, idStr, value, error),
+        {case (from, to) => Updated(ref.id, col, idStr, from, to)}
+      )) <| logE(user)
 
     override def delete(user: UserInfo, idStr: StrRowId) =
-      run(user)[Unit, ErrorMsg, Deleted](
-        crudAction.delete(ref.base, idStr),
-        unit   ⇒ Deleted(tableName, idStr),
-        error  ⇒ DeleteFailed(tableName, idStr, error)
-      )
+      runEitherDb(user)(crudAction.delete(ref.base, idStr)).map(_.bimap(
+        error  ⇒ DeleteFailed(ref.id, idStr, error),
+        unit   ⇒ Deleted(ref.id, idStr)
+      )) <| logE(user)
 
     override def cachedData(user: UserInfo) =
-      run(user).noFailure(cachedDataIO(user))(cd ⇒ ReadCachedData(tableName, cd).right)
+      runDb(user)(cachedDataIO(user)).map(cd ⇒ ReadCachedData(ref.id, cd)) <| log(user)
 
     private def cachedDataIO(user: UserInfo): DBIO[CachedData] =
       restrictedValuesIO zip tableLength map CachedData.tupled
@@ -115,7 +108,7 @@ trait serverEditors extends crudActions {
       val queries = DBIO sequence (ref.linked map (_.restrictedValues))
 
       queries.map {
-        (results: List[Option[(ColumnInfo, Seq[StrValue])]]) ⇒
+        (results: List[Option[(ColumnRef, Seq[StrValue])]]) ⇒
           static ++ results.flatten.toMap
       }
     }

@@ -10,7 +10,7 @@ import scalacss.ScalaCssReact._
 
 object EditorCreateRow extends EditorBase {
 
-  override final type Data = Map[ColumnInfo, U[StrValue]]
+  override final type Data = Map[ColumnRef, U[StrValue]]
 
   case class Props(
     base:          EditorBaseProps,
@@ -19,11 +19,11 @@ object EditorCreateRow extends EditorBase {
     onCreateU:     U[Callback]
   ) extends PropsB {
 
-    def cols: List[ClientColumn] =
-      table.originalColumns.filterNot(_.column.isAutoInc)
+    def cols: List[ColumnDesc] =
+      editorDesc.mainCols.filterNot(_.ref.isAutoInc)
 
-    def initialValues: Map[ColumnInfo, U[StrValue]] =
-      cols.map(_.column).map{
+    def initialValues: Map[ColumnRef, U[StrValue]] =
+      cols.map(_.ref).map{
         col ⇒
           val existingU = for {
             wasLinked           ←  wasLinkedU
@@ -35,32 +35,42 @@ object EditorCreateRow extends EditorBase {
   }
 
   case class State(
-    cachedDataU: U[CachedData],
-    values:      Map[ColumnInfo, U[StrValue]],
-    failure:     U[CrudFailure],
-    created:     U[Option[StrRowId]]) extends StateB[State]{
+    validationFails: Seq[ValidationError],
+    cachedDataU:     U[CachedData],
+    values:          Map[ColumnRef, U[StrValue]],
+    created:         U[Option[StrRowId]]) extends StateB[State]{
 
     override def withCachedData(cd: CachedData) =
       copy(cachedDataU = cd)
+
+    override def withValidationFails(ves: Seq[ValidationError]) =
+      copy(validationFails = ves)
   }
 
-  case class Backend($: WrapBackendScope[Props, State]) extends BackendB[Props, State]{
+  final case class Backend($: WrapBackendScope[Props, State]) extends BackendB[Props, State]{
 
     override def reInit = $.modState(_.copy(values = $.props.initialValues))
 
-    override def handleFailure(failure: CrudFailure): Callback =
-      $.modState(_.copy(failure = failure))
+    def handleFailed(f: CreateFailed): Callback =
+      f.ve match {
+        case -\/(error) =>
+          criticalError(f)
+        case  \/-(errors) =>
+          $.modState(_.withAddedValidationFails(errors.map{
+            case (c, e) => ValidationError(None, c, e)
+          }))
+      }
 
-    def setColValue(c: ColumnInfo)(str: StrValue): Callback =
+    def setColValue(c: ColumnRef)(str: StrValue): Callback =
       $.modState(s ⇒ s.copy(values = s.values.updated(c, str)))
 
-    def trySave(values: Map[ColumnInfo, U[StrValue]]): Callback = {
+    def trySave(values: Map[ColumnRef, U[StrValue]]): Callback = {
       val vs = values mapValues (_ getOrElse StrValue(""))
-      asyncCb("Couldn't create new row", remote.create($.props.base.userInfo, vs).call())
+      asyncCb.applyEither("Couldn't create new row", remote.create($.props.base.userInfo, vs).call())(handleFailed)
         .commit(created ⇒ $.props.onCreateU getOrElse $.modState(_.copy(created = created.oid)))
     }
 
-    def renderSuccess(table: ClientTable,
+    def renderSuccess(table: EditorDesc,
                       ctl:   RouterCtl[Route],
                       oid:   Option[StrRowId]): ReactElement = {
       val (title, targetPage) = oid match {
@@ -80,31 +90,26 @@ object EditorCreateRow extends EditorBase {
         TableStyle.table,
         P.cols.map{
           col ⇒
-            val errorU: U[String] = S.failure.collect {
-              case CreateFailed(_, \/-(errors)) ⇒ errors.collectFirst {
-                case (col.column, e) ⇒ e.value
-              }.asUndef
-            }.flatten
-
-          <.div(
-            TableStyle.row,
-            TableHeaderCell(col)(TableHeaderCell.Props(
-              col,
-              P.table.name,
-              uNone
-            )),
-            TableCell.createMode(
-              cachedDataU  = S.cachedDataU,
-              updateU      = setColValue(col.column),
-              col          = col,
-              valueU       = S.values(col.column),
-              errorU       = errorU,
-              inputEnabled = P.wasLinkedU.map(_.toCol) =/= col.column
+            val errorOpt = S.validationFails.collectFirst {
+              case ValidationError(None, col.ref, e) => e
+            }
+            <.div(
+              TableStyle.row,
+              TableHeaderCell(col)(TableHeaderCell.Props(
+                col,
+                P.editorDesc.mainTable,
+                uNone
+              )),
+              TableCell.createMode(
+                clearError   = clearValidationFail(None)(col.ref),
+                cachedDataU  = S.cachedDataU,
+                updateU      = setColValue(col.ref),
+                col          = col,
+                valueU       = S.values(col.ref),
+                errorU       = errorOpt.asUndef,
+                inputEnabled = P.wasLinkedU.map(_.toCol) =/= col.ref
+              )
             )
-          )
-        },
-        S.failure.toOption.collect{
-          case CreateFailed(_, -\/(error)) ⇒ error.value
         }
       )
     }
@@ -114,7 +119,7 @@ object EditorCreateRow extends EditorBase {
         TableStyle.centered,
         <.div(TableStyle.container)(
           EditorToolbar()(EditorToolbar.Props(
-            table             = $.props.table,
+            editorDesc             = $.props.editorDesc,
             rows              = 0,
             cachedDataU       = S.cachedDataU,
             filterU           = uNone,
@@ -127,7 +132,7 @@ object EditorCreateRow extends EditorBase {
             customElemU       = Button("Save", (e: ReactEvent) ⇒ trySave(S.values), Button.Primary)
           )),
           S.created.toOption match {
-            case Some(oid) ⇒ renderSuccess(P.table, P.base.ctl, oid)
+            case Some(oid) ⇒ renderSuccess(P.editorDesc, P.base.ctl, oid)
             case None      ⇒ renderForm(P, S)
           }
         )
@@ -138,9 +143,9 @@ object EditorCreateRow extends EditorBase {
   val component = ReactComponentB[Props]("EditorCreateRow")
     .initialState_P(P ⇒
       State(
+        Seq.empty,
         P.base.cachedDataF.currentValueU,
         P.initialValues,
-        failure = uNone,
         created = uNone
       )
     )
@@ -150,6 +155,6 @@ object EditorCreateRow extends EditorBase {
     .configure(ComponentUpdates.inferred("EditorCreateRow"))
     .build
 
-  def apply(t: ClientTable) =
-    component.withKey(t.name.value)
+  def apply(editorDesc: EditorDesc) =
+    component.withKey(editorDesc.editorId.value)
 }

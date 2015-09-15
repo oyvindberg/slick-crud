@@ -14,16 +14,16 @@ import scala.util.{Failure, Success}
 object Main extends JSApp {
   val baseUrl = BaseUrl(dom.window.location.href.takeWhile(_ != '#'))
 
-  def routerConfig(editors: List[ClientTable]): RouterConfig[Route] =
+  def routerConfig(editors: Seq[EditorDesc]): RouterConfig[Route] =
     RouterConfigDsl[Route].buildConfig { dsl =>
       def edPage(p: Route, ctl: RouterCtl[Route]) =
         EditorController(editors.map(RouteEditor), p)(ctl)
 
       import dsl._
 
-      val table: RouteB[ClientTable] =
-        string(editors.map(_.name.value).mkString("|"))
-        .xmap[ClientTable](s ⇒ editors.find(_.name.value =:= s).get)(_.name.value)
+      val table: RouteB[EditorDesc] =
+        string(editors.map(_.editorId.value).mkString("|"))
+        .xmap[EditorDesc](s ⇒ editors.find(_.editorId.value =:= s).get)(_.editorId.value)
 
       val id: RouteB[StrRowId] =
         string("\\w+").xmap(StrRowId)(_.value)
@@ -51,7 +51,7 @@ object Main extends JSApp {
 
   @JSExport
   override def main() =
-    AjaxCall("editors")[Editors].tables().call().onComplete{
+    AjaxCall("editors")[Editors].editorDescs().call().onComplete{
       case Success(editors) ⇒
         val router = Router(baseUrl, routerConfig(editors).logToConsole)()
         React.render(router, dom.document.getElementById("app"))

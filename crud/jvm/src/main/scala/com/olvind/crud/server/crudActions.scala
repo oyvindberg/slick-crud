@@ -23,7 +23,7 @@ trait crudActions extends tableRefs with dbIntegration with columnPickers with s
     def length[E, U](q: Query[E, U, Seq]): DBIO[TableLength] = 
       q.size.result map TableLength
 
-    def readTable[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
+    def readTable[ID, TABLE <: AbstractTable[_], LP, P]
                  (ref:       TableRef[ID, TABLE, LP, P],
                   paramsOpt: Option[QueryParams]): DBIO[Seq[StrTableRow]] = {
 
@@ -58,13 +58,12 @@ trait crudActions extends tableRefs with dbIntegration with columnPickers with s
 
     def readRow[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
                (ref:   TableRef[ID, TABLE, LP, P],
-                idStr: StrRowId): ErrorOrDb[ErrorMsg \/ StrTableRow] =
+                idStr: StrRowId): ErrorOrDb[Option[StrTableRow]] =
       
       for {
         id ← ref.metadata decodeId idStr
       } yield (ref queryById id).result.headOption map {
-        case Some(row) ⇒ ref.metadata.encodeRow(id.some)(row).right
-        case None      ⇒ ErrorMsg(s"Row not found").left
+        _ map (ref.metadata encodeRow id.some)
       }
 
     def readLinked[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
@@ -87,7 +86,7 @@ trait crudActions extends tableRefs with dbIntegration with columnPickers with s
     def update[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P]
               (ref:      TableRef[ID, TABLE, LP, P],
                idStr:    StrRowId,
-               col:      ColumnInfo,
+               col:      ColumnRef,
                valueStr: StrValue): ErrorOrDb[(Option[StrValue], StrValue)] =
       for {
         id         ← ref.metadata decodeId idStr
@@ -109,7 +108,7 @@ trait crudActions extends tableRefs with dbIntegration with columnPickers with s
 
     def create[ID: FlatRepShape, TABLE <: AbstractTable[_]]
               (ref:    BaseTableRef[ID, TABLE],
-               strRow: Map[ColumnInfo, StrValue]): (ErrorMsg \/ Seq[(ColumnInfo, ErrorMsg)]) \/ DBIO[Option[StrRowId]] = {
+               strRow: Map[ColumnRef, StrValue]): (ErrorMsg \/ Seq[(ColumnRef, ErrorMsg)]) \/ DBIO[Option[StrRowId]] = {
       for {
         row ← (ref.metadata decodeRow strRow).leftMap(_.right)
         _   ← if (ref.isEditable) ().right else ErrorMsg("Table is not editable").left.left

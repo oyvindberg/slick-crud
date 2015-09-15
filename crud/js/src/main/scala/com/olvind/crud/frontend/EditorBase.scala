@@ -7,6 +7,7 @@ import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra._
 import japgolly.scalajs.react.extra.router.RouterCtl
 import japgolly.scalajs.react.vdom.prefix_<^._
+import org.scalajs.dom
 import upickle.default
 
 import scalacss.ScalaCssReact._
@@ -14,7 +15,7 @@ import scalacss.ScalaCssReact._
 /* Things every Editor has */
 case class EditorBaseProps(
   userInfo:    UserInfo,
-  table:       ClientTable,
+  editorDesc:  EditorDesc,
   onResult:    TimedT[CrudResult] ~=> Callback,
   cachedDataF: CFuture[CachedData],
   ctl:         RouterCtl[Route]
@@ -41,11 +42,13 @@ trait EditorBaseSingleRow extends EditorBase {
 trait EditorBaseUpdaterPrimary extends EditorBaseUpdater with EditorBasePrimary {
   trait BackendBUP[P <: PropsB, S <: StateBP[S]] extends BackendBU[P, S] with BackendBP[P, S]{
     def patchRow(id: StrRowId, row: StrTableRow): Callback
-    
+
+    def handleNoRowFoundOnUpdate(id: StrRowId): Callback
+
     final override def handleUpdated(id: StrRowId): Callback =
       $.state.flatMap{ S ⇒
-        asyncCb(s"Couldn't reload row $id", remote.readRow($.props.base.userInfo, id).call())
-          .commit(read ⇒ patchRow(id, read.row))
+        asyncCb.applyEither(s"Couldn't reload row $id", remote.readRow($.props.base.userInfo, id).call())(ignoreError)
+          .commit(read ⇒ read.row.fold(handleNoRowFoundOnUpdate(id))(row => patchRow(id, row)))
       }
   }
 }
@@ -67,6 +70,7 @@ trait EditorBaseUpdaterLinked extends EditorBaseUpdater {
       $.props.reload
   }
 }
+
 /**
  * An Editor that is able to update cells
  */
@@ -75,13 +79,22 @@ trait EditorBaseUpdater extends EditorBase {
     def handleUpdated(id: StrRowId): Callback
     def handleDeleted(id: StrRowId): Callback
 
-    final def updateValue(id: StrRowId)(c: ColumnInfo)(v: StrValue): Callback =
-      asyncCb(s"Could not update row $id", remote.update($.props.base.userInfo, id, c, v).call())
-        .commit(_ ⇒ handleUpdated(id))
+    final def handleUpdateFailed(f: UpdateFailed): Callback =
+      $.modState(_.withAddedValidationFails(Seq(ValidationError(f.id.some, f.col, f.e))))
+
+    final def updateValue(id: StrRowId)(c: ColumnRef)(v: StrValue): Callback =
+      asyncCb.applyEither(
+        s"Could not update row $id",
+        remote.update($.props.base.userInfo, id, c, v).call())(
+        handleUpdateFailed
+      ).commit(_ ⇒ handleUpdated(id))
 
     final def deleteRow(id: StrRowId): Callback =
-      asyncCb(s"Could not delete row $id", remote.delete($.props.base.userInfo, id).call())
-        .commit(_ ⇒ handleDeleted(id))
+      asyncCb.applyEither(
+        s"Could not delete row $id",
+        remote.delete($.props.base.userInfo, id).call())(
+        criticalError
+      ).commit(_ ⇒ handleDeleted(id))
   }
 }
 
@@ -103,13 +116,10 @@ trait EditorBasePrimary extends EditorBase {
   trait BackendBP[P <: PropsB, S <: StateBP[S]] extends BackendB[P, S]{
     def loadInitialData: Callback
 
-    def renderData(S: S, t: ClientTable, data: Data): ReactElement
+    def renderData(S: S, t: EditorDesc, data: Data): ReactElement
 
     def setData(data: DataState, cb: Callback): Callback =
       $.modState(_.withDataState(data), cb)
-
-    override final def handleFailure(fail: CrudFailure): Callback =
-      $.modState(_.withDataState(ErrorState(fail)))
 
     override final abstract def reInit: Callback =
       $.modState(_.withDataState(InitialState)) >> loadInitialData
@@ -130,7 +140,7 @@ trait EditorBasePrimary extends EditorBase {
       val content: ReactElement = S.data match {
         case InitialState      ⇒ renderWaiting
         case ErrorState(fail)  ⇒ <.pre(<.code(fail.formatted))
-        case HasDataState(row) ⇒ renderData(S, $.props.base.table, row)
+        case HasDataState(row) ⇒ renderData(S, $.props.base.editorDesc, row)
       }
       <.div(
         TableStyle.centered,
@@ -146,18 +156,25 @@ trait EditorBase {
   trait PropsB {
     def base: EditorBaseProps
 
-    final def table = base.table
+    final def editorDesc = base.editorDesc
   }
 
   trait StateB[S <: StateB[S]] {
     def cachedDataU: U[CachedData]
+    def validationFails: Seq[ValidationError]
+
     def withCachedData(cd: CachedData): S
+    def withValidationFails(ves: Seq[ValidationError]): S
+
+    final def withAddedValidationFails(ves: Seq[ValidationError]) =
+      withValidationFails(validationFails ++ ves)
+
+    final def withNoValidationFails =
+      withValidationFails(Seq.empty)
   }
 
   trait BackendB[P <: PropsB, S <: StateB[S]] {
     def $: WrapBackendScope[P, S]
-
-    def handleFailure(fail: CrudFailure): Callback = Callback.empty
 
     def init: Callback =
       $.props.base.cachedDataF commit {
@@ -169,16 +186,27 @@ trait EditorBase {
 
     def render(P: P, S: S): ReactElement
 
+    def clearValidationFail(idOpt: Option[StrRowId])(c: ColumnRef): Callback =
+      $.modState(s => s.withValidationFails(
+        s.validationFails.filterNot(ve => ve.c =:= c && ve.rowIdOpt =:= idOpt)
+      ))
+
+    final def ignoreError(fail: CrudFailure): Callback =
+      Callback.empty
+
+    final def criticalError(fail: CrudFailure): Callback =
+      Callback(dom.alert(fail.formatted))
+
     final lazy val remote: ClientProxy[Editor, String, default.Reader, default.Writer] =
-      AjaxCall.forTable($.props.base.table.name)[Editor]
+      AjaxCall.forEditor($.props.base.editorDesc.editorId)[Editor]
 
     final lazy val asyncCb: AsyncCallback =
-      AsyncCallback($.props.base.onResult, handleFailure, $.props.base.table.name)
+      AsyncCallback($.props.base.onResult, criticalError, $.props.base.editorDesc.editorId)
 
     final lazy val showSingleRow: RouterCtl[StrRowId] =
-      $.props.base.ctl.contramap[StrRowId](id ⇒ RouteEditorRow($.props.base.table, id))
+      $.props.base.ctl.contramap[StrRowId](id ⇒ RouteEditorRow($.props.base.editorDesc, id))
 
     final lazy val showAllRows: Callback =
-      $.props.base.ctl.set(RouteEditor($.props.table))
+      $.props.base.ctl.set(RouteEditor($.props.editorDesc))
   }
 }

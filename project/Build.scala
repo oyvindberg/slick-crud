@@ -19,7 +19,7 @@ object Build extends sbt.Build {
   )
 
   val sharedDeps = Def.setting(Seq(
-    "com.lihaoyi"   %%% "upickle"       % "0.3.5",
+    "com.lihaoyi"   %%% "upickle"       % "0.3.6",
     "com.lihaoyi"   %%% "autowire"      % "0.2.5"
   ))
 
@@ -58,7 +58,7 @@ object Build extends sbt.Build {
   )
 
   /* make `package` depend on fullOptJS, and copy resulting artifacts into crudJVM */
-  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fullOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
+  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fastOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
     case (_, fromDir, toDir) ⇒
       val files: Array[(File, File)] = IO listFiles fromDir collect {
         case f if f.name contains ".js" ⇒ // ← also match «foo.js.map»

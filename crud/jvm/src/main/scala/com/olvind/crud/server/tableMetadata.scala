@@ -1,9 +1,9 @@
 package com.olvind.crud
 package server
 
-trait tableMetadata extends astParsers {
+import slick.lifted.{Rep, Query}
 
-  import driver.api._
+trait tableMetadata extends astParsers {
 
   object Metadata {
     def base[ID: FlatRepShape, TABLE, P]
@@ -43,26 +43,26 @@ trait tableMetadata extends astParsers {
         throw new RuntimeException(s"Internal error while initializing slick-crud: Couldn't understand query: Only found columns $cells")
       }
 
-      Metadata(origin.tableName, cellRow.unpackValues, cellRow.packValues, cells, origin.idCell, origin.idCol)
+      Metadata(origin.mainTable, cellRow.unpackValues, cellRow.packValues, cells, origin.idCell, origin.idCol)
     }
     
-    private def cellsWithColumnNames[TABLE, P](q: Query[TABLE, P, Seq], cr: CellRow[P]): Seq[(ColumnInfo, Cell[_])] =
+    private def cellsWithColumnNames[TABLE, P](q: Query[TABLE, P, Seq], cr: CellRow[P]): Seq[(ColumnRef, Cell[_])] =
       AstParser colNames q zip cr.cells
   }
 
-  case class Metadata[ID, P](tableName:    TableName,
+  case class Metadata[ID, P](mainTable:    TableName,
                              unpackValues: P ⇒ List[Any],
                              packValues:   Seq[Any] ⇒ P,
-                             cells:        Seq[(ColumnInfo, Cell[Any])],
+                             cells:        Seq[(ColumnRef, Cell[Any])],
                              idCell:       Cell[ID],
-                             idCol:        ColumnInfo) {
+                             idCol:        ColumnRef) {
 
-    def lookupCellFor(col: ColumnInfo): Option[Cell[Any]] =
+    def lookupCellFor(col: ColumnRef): Option[Cell[Any]] =
       cells collectFirst {
         case (ci, c) if ci =:= col ⇒ c
       }
 
-    def colNames: Seq[ColumnInfo] =
+    def colNames: Seq[ColumnRef] =
       cells map (_._1)
 
     def extractIdFromRow(row: P): Option[ID] =
@@ -85,8 +85,8 @@ trait tableMetadata extends astParsers {
     def decodeId(v: StrRowId): ErrorMsg \/ ID =
       idCell decode v.asValue
 
-    def decodeRow(params: Map[ColumnInfo, StrValue]): Seq[(ColumnInfo, ErrorMsg)] \/ P = {
-      val colValues: Seq[(ColumnInfo, ErrorMsg) \/ Any] = cells map {
+    def decodeRow(params: Map[ColumnRef, StrValue]): Seq[(ColumnRef, ErrorMsg)] \/ P = {
+      val colValues: Seq[(ColumnRef, ErrorMsg) \/ Any] = cells map {
         case (col, cell) ⇒
           if (col.isAutoInc) \/-(null) //YOLO
           else {

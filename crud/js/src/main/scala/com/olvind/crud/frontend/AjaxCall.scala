@@ -10,7 +10,7 @@ import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
 
 object AjaxCall {
-  def forTable(t: TableName) = AjaxCall(t.value)
+  def forEditor(id: EditorId) = AjaxCall(id.value)
 }
 
 case class AjaxCall(urlPrefix: String) extends autowire.Client[String, Reader, Writer] {
@@ -37,7 +37,10 @@ case class CFuture[T] private (underlying: Future[T]) extends AnyVal {
   
   def map[TT](f: T ⇒ TT): CFuture[TT] =
     CFuture(underlying map f)
-  
+
+  def foreach[TT](f: T ⇒ TT): Unit =
+    underlying foreach f
+
   def flatMap[TT](f: T ⇒ CFuture[TT]): CFuture[TT] =
     CFuture(underlying flatMap(t ⇒ f(t).underlying))
 }
@@ -45,32 +48,55 @@ case class CFuture[T] private (underlying: Future[T]) extends AnyVal {
 case class AsyncCallback(
   onResult:  TimedT[CrudResult] ~=> Callback,
   onFailure: CrudFailure ⇒ Callback,
-  tableName: TableName){
+  editorId:  EditorId){
 
-  def apply[S <: CrudSuccess]
-           (errorDesc: String,
-            _f:        ⇒ Future[CrudFailure \/ S]): CallbackTo[CFuture[S]] =
+  private def go[T](toResult:  T => CrudResult,
+                     errorDesc: String,
+                     _f:        ⇒ Future[T]): CallbackTo[CFuture[T]] =
+  
+    CallbackTo[CFuture[T]](
+      Clock { c ⇒
+        val f: Future[CrudException \/ T] =
+          Try(_f) match {
+            case Failure(th) ⇒
+              val e = CrudException(editorId, ErrorMsg(th), "Couldn't connect")
+              (onResult(c.timed(e)) >> onFailure(e)).runNow()
+              Future.successful(e.left)
+            case Success(ok) ⇒
+              ok.map(_.right)
+          }
 
-  CallbackTo[CFuture[S]](
-    Clock { c ⇒
-      val f: Future[CrudFailure \/ S] =
-        Try(_f) match {
-          case Success(ok) ⇒ ok
-          case Failure(th) ⇒ Future.successful(CrudException(tableName, ErrorMsg(th), "Couldn't connect").left)
+        f recover { case th => CrudException(editorId, ErrorMsg(th), errorDesc).left }
+
+        f.onSuccess {
+          case  \/-(t) => onResult(c.timed(toResult(t))).runNow()
+          case -\/ (e) => (onResult(c.timed(e)) >> onFailure(e)).runNow()
         }
 
-      f.recover[CrudFailure \/ S]{
-        case th ⇒ CrudException(tableName, ErrorMsg(th), errorDesc).left
+        CFuture(f collect {case \/-(v) ⇒ v})
       }
+    )
 
-      f.onSuccess {
-        case -\/(failure) ⇒
-          (onResult(c.timed(failure)) >> onFailure(failure)).runNow()
-        case  \/-(success)   ⇒
-          onResult(c.timed(success)).runNow()
-      }
+  def apply[S <: CrudSuccess]
+           (errorDesc:  String,
+            _f: ⇒ Future[S]): CallbackTo[CFuture[S]] =
 
-      CFuture(f collect {case \/-(v) ⇒ v})
+    go(identity, errorDesc, _f)
+
+  def applyEither[F <: CrudFailure, S <: CrudSuccess]
+                 (errorDesc:  String,
+                  _f: ⇒       Future[F \/ S])
+                 (onError:    F => Callback = onFailure) = {
+
+    def toResult(e: F \/ S): CrudResult = e.fold(identity, identity)
+
+    go(toResult, errorDesc, _f).map {
+      f =>
+        f.foreach {
+          case -\/ (error) => onError(error).runNow()
+          case  \/-(ok)    => ()
+        }
+        CFuture(f.underlying collect {case \/-(v) ⇒ v})
     }
-  )
+  }
 }

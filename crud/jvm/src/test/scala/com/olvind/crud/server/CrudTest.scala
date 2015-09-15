@@ -17,7 +17,8 @@ class CrudTest
   }
 
   object noop extends UpdateNotifier
-
+  val editorName = EditorName("asd")
+  
     /* just... dont put these in production code*/
   implicit def toStr[T](t: T)(implicit cell: Cell[T]): StrValue =
     cell.encode(t)
@@ -50,12 +51,12 @@ class CrudTest
                  (haystack:      StrTableRow): Boolean =
     shouldContain == haystack.values.exists(_ =:= needle)
 
-  implicit class XX(haystack: (ErrorMsg \/ StrTableRow)) {
+  implicit class XXX(haystack: Option[StrTableRow]) {
     def shouldContain(shouldContain: Boolean,
                       needle:        StrValue): Unit = {
       val ret = haystack match {
-        case -\/(_)   ⇒ !shouldContain
-        case \/-(row) ⇒ rowContains(shouldContain, needle)(row)
+        case None      ⇒ !shouldContain
+        case Some(row) ⇒ rowContains(shouldContain, needle)(row)
       }
       Assert.assertTrue(s"$haystack should ${if (shouldContain) "" else " not "} contain $needle", ret)
     }
@@ -70,11 +71,11 @@ class CrudTest
   def expectedRow(id: StrRowId, data: StrValue*): StrTableRow =
     StrTableRow(id.some, data)
 
-  def lookupCol(e: Editor)(s: String): ColumnInfo =
-    e.clientTable().columns.find(_.name.value =:= s).map(_.column).get
+  def lookupCol(e: Editor)(s: String): ColumnRef =
+    e.desc().columns.find(_.name.value =:= s).map(_.ref).get
 
-  def lookupColForCreate(e: Editor)(s: String): ColumnInfo =
-    e.clientTable().originalColumns.find(_.name.value =:= s).map(_.column).get
+  def lookupColForCreate(e: Editor)(s: String): ColumnRef =
+    e.desc().mainCols.find(_.name.value =:= s).map(_.ref).get
 
   import tdb.driver.api._
 
@@ -126,7 +127,7 @@ class CrudTest
     for {
       pid1 ← productInsert(Product(ignore, n1, q1, price, storeId))
       row  ← action.readRow(ref, pid1).forceRight
-      _    = row.forceRight shouldBe expectedRow(pid1, pid1, q1, n1)
+      _    = row.get shouldBe expectedRow(pid1, pid1, q1, n1)
     } yield ()
   }
 
@@ -136,63 +137,63 @@ class CrudTest
     for {
       pid1  ← productInsert(Product(ignore, n1, q1, price, storeId))
       row   ← action.readRow(ref, pid1).forceRight
-      _     = row.forceRight shouldBe expectedRow(pid1, q1, n1)
+      _     = row.get shouldBe expectedRow(pid1, q1, n1)
     } yield ()
   }
 
   def testUpdateClassTuple() = {
     val ref: instance.TableRef[ProductId, t.ProductT, (Rep[ProductId], Rep[Name]), (ProductId, Name)] =
       instance.TableRef(t.Products)(_.id).projected(_.map(r ⇒ (r.id, r.name)))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     for {
       pid ← productInsert(Product(ignore, n2, 100, price, storeId))
       _   ← action.update(ref, pid, lookupCol(e)("name"), n3).forceRight
       row ← action.readRow(ref, pid).forceRight
-      _   = row.forceRight shouldBe expectedRow(pid, pid, n3)
+      _   = row.get shouldBe expectedRow(pid, pid, n3)
     } yield ()
   }
 
   def testUpdateTupleTuple() = {
     val ref: instance.TableRef[ProductId, t.ProductTupledT, (Rep[Int], Rep[Name]), (Int, Name)] =
       instance.TableRef(t.ProductsTupled)(_.id).projected(_.map(r ⇒ (r.quantity, r.name)))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     for {
       pid ← productInsert(Product(ignore, n2, q1, price, storeId))
       _   ← action.update(ref, pid, lookupCol(e)("name"), n3).forceRight
       row ← action.readRow(ref, pid).forceRight
-      _   = row.forceRight shouldBe expectedRow(pid, q1, n3)
+      _   = row.get shouldBe expectedRow(pid, q1, n3)
     } yield ()
   }
 
   def testUpdateTupleSortedTuple() = {
     val ref: instance.TableRef[ProductId, t.ProductTupledT, (Rep[Int], Rep[Name]), (Int, Name)] =
       instance.TableRef(t.ProductsTupled)(_.id).projected(_.sortBy(_.quantity).map(r ⇒ (r.quantity, r.name)))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     for {
       pid ← productInsert(Product(ignore, n2, q1, price, storeId))
       _   ← action.update(ref, pid, lookupCol(e)("name"), n3).forceRight
       row ← action.readRow(ref, pid).forceRight
-      _   = row.forceRight shouldBe expectedRow(pid, q1, n3)
+      _   = row.get shouldBe expectedRow(pid, q1, n3)
     } yield ()
   }
 
   def testUpdateClassClass() = {
     val ref: instance.BaseTableRef[ProductId, t.ProductT] =
       instance.TableRef(t.Products)(_.id)
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     for {
       pid ← productInsert(Product(ignore, n2, q1, price, storeId))
       _   ← action.update(ref, pid, lookupCol(e)("name"), n3).forceRight
       row ← action.readRow(ref, pid).forceRight
-      _   = row.forceRight shouldBe expectedRow(pid, pid, n3, q1, price, storeId)
+      _   = row.get shouldBe expectedRow(pid, pid, n3, q1, price, storeId)
     } yield ()
   }
 
   def testUpdateOnlyChosenColumns() = {
     val ref: instance.TableRef[ProductId, t.ProductT, (Rep[ProductId], Rep[StoreId]), (ProductId, StoreId)] =
       instance.TableRef(t.Products)(_.id).projected(_.map(r ⇒ (r.id, r.soldBy)))
-    val e   = instance.ServerEditor(ref, noop)
-    val col = ColumnInfo(TableName("products"), ColumnName("name"), false)
+    val e   = instance.ServerEditor(editorName, ref, noop)
+    val col = ColumnRef(TableName("products"), ColumnName("name"), false)
     for {
       pid  ← productInsert(Product(ignore, n2, 100, price, storeId))
       fail = action.update(ref, pid, col, n3)
@@ -203,7 +204,7 @@ class CrudTest
   def testUpdateOnlyValidId() = {
     val ref: instance.BaseTableRef[ProductId, t.ProductT] =
       instance.TableRef(t.Products)(_.id)
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     for {
       pid  ← productInsert(Product(ignore, n2, q1, price, storeId))
       resT ← action.update(ref, ProductId(10001), lookupCol(e)("name"), n3).forceRight.asTry
@@ -216,7 +217,7 @@ class CrudTest
       instance.TableRef(t.Products)(_.id).projected(_.joinLeft(t.Stores).on(_.soldBy === _.id).map{
         case (p, sOpt) ⇒ (p.id, p.name, p.quantity, sOpt.map(_.name))
       })
-    val e       = instance.ServerEditor(ref, noop)
+    val e       = instance.ServerEditor(editorName, ref, noop)
     val col     = lookupCol(e)("name")
     for {
       pid  ← productInsert(Product(ignore, n2, 100, price, storeId))
@@ -239,7 +240,7 @@ class CrudTest
     val ref: instance.BaseTableRef[StoreId, StoreT] =
       instance.TableRef(TableQuery[StoreT])(_.id)
 
-    val e      = instance.ServerEditor(ref, noop)
+    val e      = instance.ServerEditor(editorName, ref, noop)
     val col    = lookupCol(e)("description")
     val sid    = StoreId("asdasdsad")
 
@@ -256,7 +257,7 @@ class CrudTest
     val ref: instance.BaseTableRef[StoreId, t.StoreTupledT] =
       instance.TableRef(t.StoresTupled)(_.id)
 
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val col = lookupCol(e)("description")
     val sid = StoreId("asdasdsad2")
     for {
@@ -269,22 +270,22 @@ class CrudTest
   def testUpdateWhenIdColumnNotSelected() = {
     val ref: instance.TableRef[ProductId, t.ProductT, Rep[Name], Name] =
       instance.TableRef(t.Products)(_.id).projected(_.map(_.name))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val col = lookupCol(e)("name")
     for {
       pid  ← productInsert(Product(ignore, n2, q1, price, storeId))
       res1 ← action.update(ref, pid, col, n3).forceRight
       res2 ← action.readRow(ref, pid).forceRight
-      _    = res2.forceRight shouldBe expectedRow(pid, n3)
+      _    = res2.get shouldBe expectedRow(pid, n3)
     } yield ()
   }
 
   def testCreateTupled() = {
     val ref: instance.BaseTableRef[ProductId, t.ProductTupledT] =
       instance.TableRef(t.ProductsTupled)(_.id)
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val row =
-      Map[ColumnInfo, StrValue](
+      Map[ColumnRef, StrValue](
         lookupColForCreate(e)("name")      → n1,
         lookupColForCreate(e)("quantity")  → q1,
         lookupColForCreate(e)("price")     → price,
@@ -300,10 +301,10 @@ class CrudTest
   def testCreateClass() = {
     val ref: instance.TableRef[ProductId, t.ProductT, t.ProductT, Product] =
       instance.TableRef(t.Products)(_.id).projected(_.sortBy(_.name))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val quantity = 256
     val row =
-      Map[ColumnInfo, StrValue](
+      Map[ColumnRef, StrValue](
         lookupColForCreate(e)("name")      → n1,
         lookupColForCreate(e)("quantity")  → quantity,
         lookupColForCreate(e)("price")     → price,
@@ -320,9 +321,9 @@ class CrudTest
   def testCreateNeedsAllColumns() = {
     val ref: instance.TableRef[ProductId, t.ProductTupledT, (Rep[Name], Rep[Int], Rep[StoreId]), (Name, Int, StoreId)] =
       instance.TableRef(t.ProductsTupled)(_.id).projected(_.map(r ⇒ (r.name, r.quantity, r.soldBy)))
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val row =
-      Map[ColumnInfo, StrValue](
+      Map[ColumnRef, StrValue](
         lookupColForCreate(e)("quantity")  → q1,
         lookupColForCreate(e)("sold_by")   → storeId
       )
@@ -338,10 +339,10 @@ class CrudTest
   def testCreateNoAutoIncrement() = {
     val ref: instance.BaseTableRef[StoreId, t.StoreT] =
       instance.TableRef(t.Stores)(_.id)
-    val e   = instance.ServerEditor(ref, noop)
+    val e   = instance.ServerEditor(editorName, ref, noop)
     val sid = StoreId("storeId")
     val row =
-      Map[ColumnInfo, StrValue](
+      Map[ColumnRef, StrValue](
         lookupColForCreate(e)("id")          → sid,
         lookupColForCreate(e)("name")        → "my store",
         lookupColForCreate(e)("description") → storeId,
@@ -360,10 +361,10 @@ class CrudTest
     for {
       pid   ← productInsert(Product(ignore, n1, q1, price, storeId))
       row   ← action.readRow(ref, pid).forceRight
-      _     = row.forceRight shouldBe expectedRow(pid, pid, n1, q1, price, storeId)
+      _     = row.get shouldBe expectedRow(pid, pid, n1, q1, price, storeId)
       _     ← action.delete(ref, pid).forceRight
       fail  ← action.readRow(ref, pid).forceRight
-      _     = fail shouldBe ErrorMsg("Row not found").left
+      _     = fail shouldBe None
     } yield ()
   }
 

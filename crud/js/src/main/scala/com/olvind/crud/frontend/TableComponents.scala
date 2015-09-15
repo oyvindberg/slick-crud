@@ -8,24 +8,27 @@ import japgolly.scalajs.react.vdom.prefix_<^._
 import scalacss.ScalaCssReact._
 
 object forColumns{
-  def apply[T](t: ClientTable, ur: U[StrTableRow])
-              (f: (ClientTable, ClientColumn, U[StrRowId], U[StrValue]) ⇒ T) =
+  def apply[T](t: EditorDesc, ur: U[StrTableRow], ves: Seq[ValidationError])
+              (f: (EditorDesc, ColumnDesc, U[StrRowId], U[StrValue], U[ErrorMsg]) ⇒ T) =
   t.columns.zipWithIndex.map{
     case (col, idx) ⇒
-      val oid = ur.flatMap(_.idOpt.asUndef)
-      val ov  = ur.map(_.values(idx))
-      f(t, col, oid, ov)
+      val Oid = ur.toOption.flatMap(_.idOpt)
+      val uv  = ur.map(_.values(idx))
+      val ue = ves.collectFirst{
+        case ValidationError(Oid, col.ref, e) => e
+      }.asUndef
+      f(t, col, Oid.asUndef, uv, ue)
   }
 }
 
 object TableHeaderCell {
   case class Props(
-    col:       ClientColumn,
+    col:       ColumnDesc,
     mainTable: TableName,
     sortedU:   U[SortOrder]){
 
     def otherTable: U[TableName] =
-      col.column.table.undef.filterNot(_ =:= mainTable)
+      col.ref.table.undef.filterNot(_ =:= mainTable)
   }
 
   val component = ReactComponentB[Props]("TableHeaderCell").render_P(P ⇒
@@ -39,25 +42,29 @@ object TableHeaderCell {
   ).configure(ComponentUpdates.inferredNoState("TableHeaderCell"))
    .build
 
-  def apply(col: ClientColumn) = component.withKey("header" + col.name.value)
+  def apply(col: ColumnDesc) = component.withKey("header" + col.name.value)
 }
 
 object TableHeader {
   case class Props (
-    table:    ClientTable,
-    sortingU: U[(ColumnInfo, SortOrder)],
-    onSort:   U[ColumnInfo ⇒ Callback]
+    editorDesc: EditorDesc,
+    sortingU:   U[(ColumnRef, SortOrder)],
+    onSort:     U[ColumnRef ⇒ Callback]
   )
 
   private val component = ReactComponentB[Props]("TableHeader")
     .render_P{P ⇒
       <.div(
         TableStyle.headerRow,
-        P.table.columns.map(col ⇒
+        P.editorDesc.columns.map(col ⇒
           <.div(
-            TableHeaderCell(col)(TableHeaderCell.Props(col, P.table.name, P.sortingU.collect{case (col.column, order) ⇒ order})),
+            TableHeaderCell(col)(TableHeaderCell.Props(
+              col,
+              P.editorDesc.mainTable,
+              P.sortingU.collect{case (col.`ref`, order) ⇒ order}
+            )),
             ^.cursor := "pointer",
-            ^.onClick -->? P.onSort.mapply(col.column)
+            ^.onClick -->? P.onSort.mapply(col.ref)
           )
         )
       )
@@ -68,20 +75,22 @@ object TableHeader {
 }
 
 object TableRow {
-  case class Props (
-    table:         ClientTable,
-    row:           StrTableRow,
-    cachedDataU:   U[CachedData],
-    onUpdateU:     U[ColumnInfo ⇒ StrValue ⇒ Callback],
-    showSingleRow: RouterCtl[StrRowId]
+  case class Props(
+    editorDesc:      EditorDesc,
+    row:             StrTableRow,
+    cachedDataU:     U[CachedData],
+    onUpdateU:       U[ColumnRef ⇒ StrValue ⇒ Callback],
+    showSingleRow:   RouterCtl[StrRowId],
+    validationFails: Seq[ValidationError],
+    clearError:      ColumnRef => Callback
   )
 
   val component = ReactComponentB[Props]("TableRow")
     .render_P{P =>
       <.div(
         TableStyle.row,
-        forColumns(P.table, P.row){
-          TableCell(P.cachedDataU, P.onUpdateU, P.showSingleRow)
+        forColumns(P.editorDesc, P.row, P.validationFails){
+          TableCell(P.clearError, P.cachedDataU, P.onUpdateU, P.showSingleRow)
         }
       )
     }

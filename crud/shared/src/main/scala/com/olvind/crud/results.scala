@@ -1,62 +1,62 @@
 package com.olvind.crud
 
-sealed abstract class CrudResult(table: TableName, 
-                                 oid:   Option[StrRowId], 
-                                 oc:    Option[ColumnName]) {
+sealed abstract class CrudResult(editorId: EditorId,  
+                                 oid:      Option[StrRowId],
+                                 oc:       Option[ColumnRef]) {
   def desc: String
   
   final def formatted = {
-    val t  = s"Table ${table.value}".some
-    val c  = oc.map(c ⇒ s"column ${c.value}")
+    val t  = s"Editor ${editorId.value}".some
+    val c  = oc.map(c ⇒ s"column ${c.name.value} in table ${c.table.value}")
     val id = oid.map(id ⇒ s"id ${id.value}")
     List(t, c, id).flatten.mkString("", ", ", ": ") + desc
   }
 }
 
-sealed abstract class CrudSuccess(table: TableName, idStr: Option[StrRowId], oc: Option[ColumnName], val desc: String) extends CrudResult(table, idStr, oc)
+sealed abstract class CrudSuccess(editorId: EditorId, idStr: Option[StrRowId], oc: Option[ColumnRef], val desc: String) extends CrudResult(editorId, idStr, oc)
 
 sealed trait Read
 
-case class Created(table: TableName, oid: Option[StrRowId])
-  extends CrudSuccess(table, oid, None, s"Created row")
+case class Created(editorId: EditorId, oid: Option[StrRowId])
+  extends CrudSuccess(editorId, oid, None, s"Created row")
 
-case class ReadCachedData(table: TableName, cd: CachedData)
-  extends CrudSuccess(table, None, None, "Read cached data") with Read
+case class ReadCachedData(editorId: EditorId, cd: CachedData)
+  extends CrudSuccess(editorId, None, None, "Read cached data") with Read
 
-case class ReadLinkedRows(table: TableName, id: StrRowId, linkedRows: Seq[StrLinkedRows])
-  extends CrudSuccess(table, id.some, None, s"Read linked rows") with Read
+case class ReadLinkedRows(editorId: EditorId, id: StrRowId, linkedRows: Seq[StrLinkedRows])
+  extends CrudSuccess(editorId, id.some, None, s"Read linked rows") with Read
 
-case class ReadRow(table: TableName, row: StrTableRow)
-  extends CrudSuccess(table, row.idOpt, None, s"Read row") with Read
+case class ReadRow(editorId: EditorId, id: StrRowId, row: Option[StrTableRow])
+  extends CrudSuccess(editorId, id.some, None, s"Read row") with Read
 
-case class ReadTable(table: TableName, rows: Seq[StrTableRow])
-  extends CrudSuccess(table, None, None, s"Read ${rows.size} rows") with Read
+case class ReadTable(editorId: EditorId, rows: Seq[StrTableRow])
+  extends CrudSuccess(editorId, None, None, s"Read ${rows.size} rows") with Read
 
-case class Updated(col: ColumnInfo, id: StrRowId, oldValue: Option[StrValue], newValue: StrValue)
-  extends CrudSuccess(col.table, id.some, col.name.some, s"Updated from ${oldValue.fold("empty")(f ⇒ s"«${f.value}»")} to «${newValue.value}»")
+case class Updated(editorId: EditorId, col: ColumnRef, id: StrRowId, oldValue: Option[StrValue], newValue: StrValue)
+  extends CrudSuccess(editorId, id.some, col.some, s"Updated from ${oldValue.fold("empty")(f ⇒ s"«${f.value}»")} to «${newValue.value}»")
 
-case class Deleted(table: TableName, id: StrRowId)
-  extends CrudSuccess(table, id.some, None, s"Deleted row")
+case class Deleted(editorId: EditorId, id: StrRowId)
+  extends CrudSuccess(editorId, id.some, None, s"Deleted row")
 
 
-sealed abstract class CrudFailure(table: TableName, oid: Option[StrRowId], oc: Option[ColumnName], e: ErrorMsg, failDesc: String) extends CrudResult(table, oid, oc) {
+sealed abstract class CrudFailure(editorId: EditorId, oid: Option[StrRowId], oc: Option[ColumnRef], e: ErrorMsg, failDesc: String) extends CrudResult(editorId, oid, oc) {
   override final def desc = s"$failDesc: ${e.value}"
 }
 
-case class CreateFailed (table: TableName, ve: ErrorMsg \/ Seq[(ColumnInfo, ErrorMsg)])
-  extends CrudFailure(table, None, None, ve.fold(identity, es ⇒ ErrorMsg(es.map{case (col, e) ⇒ s"$col: ${e.value}"}.mkString(", "))), "Failed to create new row")
+case class CreateFailed (editorId: EditorId, ve: ErrorMsg \/ Seq[(ColumnRef, ErrorMsg)])
+  extends CrudFailure(editorId, None, None, ve.fold(identity, es ⇒ ErrorMsg(es.map{case (col, e) ⇒ s"$col: ${e.value}"}.mkString(", "))), "Failed to create new row")
 
-case class ReadRowFailed(table: TableName, id: StrRowId, e: ErrorMsg)
-  extends CrudFailure(table, id.some, None, e, "Failed to read row")
+case class ReadRowFailed(editorId: EditorId, id: StrRowId, e: ErrorMsg)
+  extends CrudFailure(editorId, id.some, None, e, "Failed to read row")
 
-case class UpdateFailed (col: ColumnInfo, id: StrRowId, value: StrValue, e: ErrorMsg)
-  extends CrudFailure(col.table, id.some, col.name.some, e, s"Failed to update row to value «${value.value}»")
+case class UpdateFailed (editorId: EditorId, col: ColumnRef, id: StrRowId, value: StrValue, e: ErrorMsg)
+  extends CrudFailure(editorId, id.some, col.some, e, s"Failed to update row to value «${value.value}»")
 
-case class DeleteFailed (table: TableName, id: StrRowId, e: ErrorMsg)
-  extends CrudFailure(table, id.some, None, e, s"Failed to delete row")
+case class DeleteFailed (editorId: EditorId, id: StrRowId, e: ErrorMsg)
+  extends CrudFailure(editorId, id.some, None, e, s"Failed to delete row")
 
-case class CrudException(table: TableName, e: ErrorMsg, s: String)
-  extends CrudFailure(table, None, None, e, s)
+case class CrudException(editorId: EditorId, e: ErrorMsg, s: String)
+  extends CrudFailure(editorId, None, None, e, s)
 
 class UpdateNotifier {
   def notifySuccess(user: UserInfo)(s: CrudSuccess) = ()

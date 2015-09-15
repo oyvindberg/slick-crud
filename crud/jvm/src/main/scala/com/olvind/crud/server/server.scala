@@ -7,6 +7,7 @@ package object server {
   val CellRendering = _root_.com.olvind.crud.CellRendering
   type CellRendering = _root_.com.olvind.crud.CellRendering
   type Editor = _root_.com.olvind.crud.Editor
+  type EditorName = _root_.com.olvind.crud.EditorName
 
   /* A suitably long number for a dropdown*/
   private[server] val maxNumLinks = 300

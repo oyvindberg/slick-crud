@@ -15,6 +15,8 @@ trait CellRow[P]{
 
   /* reconstruct a P given a list of values */
   def packValues(a: Seq[Any]): P
+
+  final override def toString = s"CellRow[${cells.mkString(", ")}]"
 }
 
 object CellRow {

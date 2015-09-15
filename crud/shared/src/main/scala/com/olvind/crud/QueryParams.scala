@@ -9,17 +9,17 @@ object PageNum {
   val zero = PageNum(0)
 }
 
-case class Filter(columnInfo: ColumnInfo, value: StrValue)
+case class Filter(columnInfo: ColumnRef, value: StrValue)
 
 case class QueryParams(pageSize: Int, 
                        page:     PageNum, 
-                       sorting:  Option[(ColumnInfo, SortOrder)], 
+                       sorting:  Option[(ColumnRef, SortOrder)],
                        filter:   Option[Filter]) {
   
   def start = (pageSize * page.value) + 1 //one-based indices
   def end   = start + pageSize
 
-  def withSortedBy(C: ColumnInfo): QueryParams =
+  def withSortedBy(C: ColumnRef): QueryParams =
     sorting match {
       case Some((C, Asc)) ⇒ copy(sorting = (C, Desc).some)
       case _              ⇒ copy(sorting = (C, Asc).some)

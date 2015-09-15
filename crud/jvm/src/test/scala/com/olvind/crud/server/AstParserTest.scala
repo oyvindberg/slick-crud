@@ -17,7 +17,7 @@ class AstParserTest
   }
   def c(s: String, isAutoIncrement: Boolean = false) = {
     val parts = s.split("\\.")
-    ColumnInfo(TableName(parts(0)), ColumnName(parts(1)), isAutoIncrement)
+    ColumnRef(TableName(parts(0)), ColumnName(parts(1)), isAutoIncrement)
   }
 
   class OneTwoThreeT(tag: Tag) extends Table[(Int, Option[Int], Option[Int])](tag, "t") {

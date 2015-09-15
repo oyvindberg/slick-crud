@@ -38,5 +38,5 @@ package object crud
     @inline def =/=(aa: A): Boolean = a != aa
   }
 
-  private [crud] type RestrictedValues = Map[ColumnInfo, Seq[StrValue]]
+  private [crud] type RestrictedValues = Map[ColumnRef, Seq[StrValue]]
 }

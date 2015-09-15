@@ -13,14 +13,15 @@ object TableCell {
   case class Props (
     createMode:     Boolean,
     inputEnabled:   Boolean,
-    column:         ClientColumn,
+    column:         ColumnDesc,
+    clearError:     Callback,
     rowIdU:         U[StrRowId],
     valueU:         U[StrValue],
     cachedDataU:    U[CachedData],
     onUpdateU:      U[StrValue ⇒ Callback],
     showSingleRowU: U[RouterCtl[StrRowId]],
-    errorU:         U[String]){
-    def tableName = column.column.table
+    errorU:         U[ErrorMsg]){
+    def tableName = column.ref.table
   }
 
   case class State(contentU: U[StrValue])
@@ -58,7 +59,7 @@ object TableCell {
     val onEdit: ReactKeyboardEventI ⇒ Callback =
       _.nativeEvent.keyCode match {
         case KeyCode.Escape               ⇒ onEditCanceled
-        case _                            ⇒ Callback.empty
+        case _                            ⇒ $.props.clearError
       }
 
     val onChange: ReactKeyboardEventI ⇒ Callback =
@@ -69,7 +70,7 @@ object TableCell {
       val ors: Option[Seq[StrValue]] =
         $.props.cachedDataU.toOption.map(_.restrictedValues).flatMap(
           _.collectFirst{
-            case (c.column, values) ⇒ values
+            case (c.`ref`, values) ⇒ values
           }
         )
       val optional = c.isOptional || $.props.createMode
@@ -101,7 +102,7 @@ object TableCell {
         TableStyle.cell,
         elem,
         $.props.errorU.map(
-          e ⇒ <.div(TableStyle.error, e)
+          e ⇒ <.div(TableStyle.error, e.value)
         )
       )
     }
@@ -144,37 +145,42 @@ object TableCell {
     .render($ ⇒ $.backend.render($.state))
     .componentWillReceiveProps(($, P) ⇒
       $.modState(_.copy(contentU = P.valueU))
+        .conditionally(P.valueU =/= $.props.valueU)
+        .void
     )
     .configure(ComponentUpdates.inferred("TableCell"))
     .build
 
-  def createMode(cachedDataU:    U[CachedData],
+  def createMode(clearError:     Callback,
+                 cachedDataU:    U[CachedData],
                  updateU:        StrValue ⇒ Callback,
-                 col:            ClientColumn,
+                 col:            ColumnDesc,
                  valueU:         U[StrValue],
-                 errorU:         U[String],
+                 errorU:         U[ErrorMsg],
                  inputEnabled:   Boolean) = {
-    component.withKey(col.column.name.value)(
-      Props(createMode = true, inputEnabled, col, uNone, valueU, cachedDataU, updateU, uNone, errorU)
+    component.withKey(col.ref.name.value)(
+      Props(createMode = true, inputEnabled, col, clearError, uNone, valueU, cachedDataU, updateU, uNone, errorU)
     )
   }
 
-  def apply(cachedDataU:    U[CachedData],
-            updateU:        U[ColumnInfo ⇒ StrValue ⇒ Callback],
+  def apply(clearError:     ColumnRef => Callback,
+            cachedDataU:    U[CachedData],
+            updateU:        U[ColumnRef ⇒ StrValue ⇒ Callback],
             showSingleRowU: U[RouterCtl[StrRowId]])
-           (table:          ClientTable,
-            col:            ClientColumn,
+           (editorDesc:     EditorDesc,
+            col:            ColumnDesc,
             rowIdU:         U[StrRowId],
-            valueU:         U[StrValue]) = {
+            valueU:         U[StrValue],
+            errorU:         U[ErrorMsg]) = {
 
     val inputEnabled: Boolean = {
-      def tableMatches = col.column.table =:= table.name
-      def isAllowed    = table.isEditable  && col.isEditable
-      tableMatches && isAllowed
+      def tableMatches = col.ref.table =:= editorDesc.mainTable
+      def isAllowed    = editorDesc.isEditable  && col.isEditable
+      tableMatches && isAllowed && rowIdU.isDefined
     }
 
-    component.withKey(col.column.name.value)(
-      Props(createMode = false, inputEnabled, col, rowIdU, valueU, cachedDataU, updateU.liftParam(col.column), showSingleRowU, uNone)
+    component.withKey(col.ref.name.value)(
+      Props(createMode = false, inputEnabled, col, clearError(col.ref), rowIdU, valueU, cachedDataU, updateU.liftParam(col.ref), showSingleRowU, errorU)
     )
   }
 }

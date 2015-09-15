@@ -26,6 +26,7 @@ sealed trait Cell[E] {
     ErrorMsg.tryCatch(rawDecode(str.value)){
       th ⇒ s"«${str.value}» is not a valid $typeName: ${th.getMessage}"
     }
+  final override def toString = s"Cell[$typeName]"
 }
 
 private[server] final class SimpleCell[E: ClassTag]
@@ -125,17 +126,18 @@ object Cell {
   implicit val cellLong         = instance[Long]   (_.toLong)   (_.toString, rendering = CellRendering.Number)
   implicit val cellString       = instance[String] (nonEmpty)   (identity)
 
-  /* The rest are here because `UpdateNofitier` needs them */
+  /* The rest are here because `UpdateNotifier` needs them */
 
-  private object timestamp{
-    def dateFormat = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss.SSS")
-    def parse(s: String) = new java.sql.Timestamp(dateFormat.parse(s).getTime)
+  private object timestamp {
+    def dateFormat            = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss.SSS")
+    def parse(s: String)      = new java.sql.Timestamp(dateFormat.parse(s).getTime)
     def format(td: Timestamp) = dateFormat.format(td)
   }
 
   implicit val cellTimestamp    = instance[Timestamp](timestamp.parse)(timestamp.format)
   implicit val cellTableName    = instance[TableName ](TableName) (_.value)
   implicit val cellColName      = instance[ColumnName](ColumnName)(_.value)
+  implicit val cellEditorId     = instance[EditorId  ](EditorId)(_.value, isEditable = false)
   implicit val cellUserInfoName = instance[UserInfo  ](UserInfo)  (_.value)
   implicit val cellStrRowIdName = instance[StrRowId  ](StrRowId)  (_.value)
   implicit val cellStrValueName = instance[StrValue  ](StrValue)  (_.value)

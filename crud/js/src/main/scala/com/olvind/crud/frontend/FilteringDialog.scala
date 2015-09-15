@@ -13,21 +13,21 @@ object FilteringDialog {
 
   case class Props(
     ctl:            DialogController,
-    cols:           Seq[ClientColumn],
+    cols:           Seq[ColumnDesc],
     initial:        Option[Filter],
     onParamsChange: Option[Filter] ⇒ Callback,
     cachedDataU:    U[CachedData]                    
   )
 
   case class State(
-    chosenColumn: ClientColumn,
+    chosenColumn: ColumnDesc,
     valueU:       U[StrValue]
   )
 
   object State {
     def apply(P: Props, of: Option[Filter]): State =
       State(
-        of.flatMap(f ⇒ P.cols.find(_.column =:= f.columnInfo)).getOrElse(P.cols.head),
+        of.flatMap(f ⇒ P.cols.find(_.ref =:= f.columnInfo)).getOrElse(P.cols.head),
         of.map(_.value).asUndef
       )
   }
@@ -70,8 +70,8 @@ object FilteringDialog {
     val onTextChange: StrValue ⇒ Callback =
       v ⇒ $.modState(_.copy(valueU = v))
 
-    def onApply(c: ClientColumn)(text: StrValue): ReactEvent ⇒ Callback =
-      _ ⇒ $.props.onParamsChange(Filter(c.column, text).some) >> $.props.ctl.closeDialog
+    def onApply(c: ColumnDesc)(text: StrValue): ReactEvent ⇒ Callback =
+      _ ⇒ $.props.onParamsChange(Filter(c.ref, text).some) >> $.props.ctl.closeDialog
 
     def onClear: ReactEvent ⇒ Callback =
       _ ⇒ $.props.onParamsChange(None) >> $.props.ctl.closeDialog
@@ -102,6 +102,7 @@ object FilteringDialog {
             cachedDataU  = $.props.cachedDataU,
             updateU      = onTextChange,
             col          = S.chosenColumn,
+            clearError   = Callback.empty,
             valueU       = S.valueU,
             errorU       = uNone,
             inputEnabled = true

@@ -19,10 +19,15 @@ object EditorLinkedSingleRow
   }
 
   final case class State(
-    showCreate:  Boolean,
-    cachedDataU: U[CachedData]) extends StateB[State]{
+    validationFails: Seq[ValidationError],
+    showCreate:      Boolean,
+    cachedDataU:     U[CachedData]) extends StateB[State]{
+
     override def withCachedData(cd: CachedData) =
       copy(cachedDataU = cd)
+
+    override def withValidationFails(ves: Seq[ValidationError]) =
+      copy(validationFails = ves)
   }
 
   final case class Backend($: WrapBackendScope[Props, State])
@@ -34,7 +39,7 @@ object EditorLinkedSingleRow
     override def render(P: Props, S: State): ReactElement = {
       <.div(TableStyle.container)(
         EditorToolbar()(EditorToolbar.Props(
-          table             = $.props.table,
+          editorDesc             = $.props.editorDesc,
           rows              = 1,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
@@ -52,20 +57,21 @@ object EditorLinkedSingleRow
             TableStyle.nested,
             P.createElem.some.filter(_ ⇒ S.showCreate)
           ),
-          forColumns(P.table, P.row)(
-            (t, col, uid, uv) ⇒
+          forColumns(P.editorDesc, P.row, S.validationFails)(
+            (t, col, uid, uv, ue) ⇒
               <.div(
                 TableStyle.row,
                 TableHeaderCell(col)(TableHeaderCell.Props(
                   col,
-                  t.name,
+                  t.mainTable,
                   uNone
                 )),
                 TableCell(
+                  clearValidationFail(P.row.idOpt),
                   S.cachedDataU,
                   P.row.idOpt.map(updateValue).asUndef,
                   showSingleRow)(
-                  t, col, uid, uv)
+                  t, col, uid, uv, ue)
               )
           )
         )
@@ -74,7 +80,7 @@ object EditorLinkedSingleRow
   }
   
   val component = ReactComponentB[Props]("EditorSingleRow")
-    .initialState_P(P ⇒ State(showCreate = false, P.base.cachedDataF.currentValueU))
+    .initialState_P(P ⇒ State(Seq.empty, showCreate = false, P.base.cachedDataF.currentValueU))
     .backend($ ⇒ Backend(WrapBackendScope($)))
     .render($ ⇒ $.backend.render($.props, $.state))
     .configure(ComponentUpdates.inferred("EditorSingleRow"))

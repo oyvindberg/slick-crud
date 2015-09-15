@@ -10,7 +10,7 @@ import scala.scalajs.js
 object EditorToolbar {
 
   case class Props(
-    table:             ClientTable,
+    editorDesc:        EditorDesc,
     rows:              Int,
     cachedDataU:       U[CachedData],
     filterU:           U[Filter],
@@ -26,8 +26,9 @@ object EditorToolbar {
   final case class Backend($: WrapBackendScope[Props, Unit]){
 
     def title(P: Props) = {
+      val s1 = P.editorDesc.title
       val (main: String, numRowsOpt: Option[String]) =
-        (P.table.name.value, P.rows) match {
+        (s1, P.rows) match {
           case (name, 0) ⇒ (s"Create new row for $name", None)
           case (name, n) ⇒ (name, s"showing $n".some)
         }
@@ -44,7 +45,7 @@ object EditorToolbar {
         },
 
         P.isLinkedU.toOption map {
-          case StrLinkedRows(fromCol, toCol, _, _) ⇒
+          case StrLinkedRows(_, fromCol, toCol, _) ⇒
             s"linked on ${toCol.name.value} = ${fromCol.table.value}.${fromCol.name.value}"
         }
       )
@@ -79,7 +80,7 @@ object EditorToolbar {
             Button("Filter rows", (e: ReactEvent) ⇒ f, Button.Normal)
           ),
           P.showAllU.toOption.map(f ⇒
-            Button(s"See all ${P.table.name.value}", (e: ReactEvent) ⇒ f, Button.Normal)
+            Button(s"See all ${P.editorDesc.mainTable.value}", (e: ReactEvent) ⇒ f, Button.Normal)
           ),
           P.refreshU.toOption.map(f ⇒
             Button("Refresh", (e: ReactEvent) ⇒ f, Button.Normal)

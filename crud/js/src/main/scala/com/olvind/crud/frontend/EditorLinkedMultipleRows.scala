@@ -20,11 +20,15 @@ object EditorLinkedMultipleRows
   }
 
   case class State(
-    showCreate: Boolean,
-    cachedDataU: U[CachedData]) extends StateB[State]{
+    validationFails: Seq[ValidationError],
+    showCreate:      Boolean,
+    cachedDataU:     U[CachedData]) extends StateB[State]{
 
     override def withCachedData(cd: CachedData) =
       copy(cachedDataU = cd)
+
+    override def withValidationFails(ves: Seq[ValidationError]) =
+      copy(validationFails = ves)
   }
 
   final case class Backend($: WrapBackendScope[Props, State])
@@ -38,7 +42,7 @@ object EditorLinkedMultipleRows
       <.div(
         TableStyle.container,
         EditorToolbar()(EditorToolbar.Props(
-          table             = $.props.table,
+          editorDesc             = $.props.editorDesc,
           rows              = P.rows.size,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
@@ -57,17 +61,19 @@ object EditorLinkedMultipleRows
             P.createElem.some.filter(_ ⇒ S.showCreate)
           ),
           TableHeader()(TableHeader.Props(
-            table    = P.table,
+            editorDesc    = P.editorDesc,
             sortingU = uNone,
             onSort   = uNone
           )),
           P.rows.map(
             r ⇒ TableRow(r)(TableRow.Props(
-              P.table,
+              P.editorDesc,
               r,
               S.cachedDataU,
               r.idOpt.asUndef.map(updateValue),
-              showSingleRow
+              showSingleRow,
+              S.validationFails,
+              clearValidationFail(r.idOpt)
             ))
           )
         )
@@ -76,7 +82,7 @@ object EditorLinkedMultipleRows
   }
 
   val component = ReactComponentB[Props]("EditorMultipleRows")
-    .initialState_P(P ⇒ State(showCreate = false, P.base.cachedDataF.currentValueU))
+    .initialState_P(P ⇒ State(Seq.empty, showCreate = false, P.base.cachedDataF.currentValueU))
     .backend($ ⇒ Backend(WrapBackendScope($)))
     .render($ ⇒ $.backend.render($.props, $.state))
     .configure(ComponentUpdates.inferred("EditorMultipleRows"))

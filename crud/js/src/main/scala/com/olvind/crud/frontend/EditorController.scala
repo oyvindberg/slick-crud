@@ -7,7 +7,6 @@ import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra._
 import japgolly.scalajs.react.extra.router.RouterCtl
 import japgolly.scalajs.react.vdom.prefix_<^._
-import org.scalajs.dom
 
 import scala.scalajs.js
 import scalacss.Defaults._
@@ -16,7 +15,7 @@ import scalacss.ScalaCssReact._
 object EditorController {
 
   case class Props(
-    menu:    List[RouteEditor],
+    menu:    Seq[(EditorName, RouteEditor)],
     current: Route,
     ctl:     RouterCtl[Route]
   )
@@ -27,25 +26,25 @@ object EditorController {
 
   case class Backend($: WrapBackendScope[Props, State]) {
     object cachedData {
-      var cachedDataVar = Map.empty[TableName, CFuture[CachedData]]
+      var cachedDataVar = Map.empty[EditorId, CFuture[CachedData]]
 
       val nothing = ReusableFn((in: TimedT[CrudResult]) ⇒ Callback.empty)
 
-      def cleanup(t: TableName)(fail: CrudFailure) = Callback {
-        cachedDataVar = cachedDataVar - t
+      def cleanup(eid: EditorId)(fail: CrudFailure) = Callback {
+        cachedDataVar = cachedDataVar - eid
       }
 
-      def fetch(t: TableName): CFuture[CachedData] = {
-        val remote = AjaxCall.forTable(t)[Editor]
-        val async  = AsyncCallback(nothing, cleanup(t), t)
-        async("Could not load cached data", remote.cachedData(userInfo).call()).map(_.map(_.cd)).runNow()
+      def fetch(t: EditorDesc): CFuture[CachedData] = {
+        val remote = AjaxCall.forEditor(t.editorId)[Editor]
+        val async  = AsyncCallback(nothing, cleanup(t.editorId), t.editorId)
+        async("Could not load cached data", remote.cachedData(userInfo).call()).runNow().map(_.cd)
       }
 
-      def save(t: TableName)(fcd: CFuture[CachedData]): Unit =
-        cachedDataVar = cachedDataVar.updated(t, fcd)
+      def save(eid: EditorId)(fcd: CFuture[CachedData]): Unit =
+        cachedDataVar = cachedDataVar.updated(eid, fcd)
 
-      def apply(t: TableName): CFuture[CachedData]  =
-        cachedDataVar getOrElse(t, fetch(t) <| save(t))
+      def apply(t: EditorDesc): CFuture[CachedData]  =
+        cachedDataVar getOrElse(t.editorId, fetch(t) <| save(t.editorId))
 
       def invalidate(): Unit =
         cachedDataVar = Map.empty
@@ -53,9 +52,9 @@ object EditorController {
 
     object currentTable {
       def index: U[Int] = 
-        $.props.menu.indexWhere(_.t.some =:= opt).undef.filterNot(_ =:= -1)
+        $.props.menu.indexWhere(_._2.t.some =:= opt).undef.filterNot(_ =:= -1)
 
-      def opt: Option[ClientTable] = $.props.current.some collect {
+      def opt: Option[EditorDesc] = $.props.current.some collect {
         case RouteEditor(t) ⇒ t
       }
     }
@@ -81,25 +80,25 @@ object EditorController {
       val leftNavRef = "leftNav"
 
       val menuItems: js.Array[MuiMenuItem] =
-        $.props.menu.toJsArray.map(
-          p ⇒ MuiMenuItem(text = p.t.name.value, payload = p.t.name.value)
-        )
+        $.props.menu.toJsArray.map{
+          case (name, r) ⇒ MuiMenuItem(text = name.value, payload = r.t.mainTable.value)
+        }
 
       val toggle: Callback =
         Callback($.$.refs(leftNavRef).foreach(_.asInstanceOf[MuiLeftNavM].toggle()))
 
       val onTableChosen: (ReactEvent, Int, js.Object) ⇒ Callback =
-        (e, i, o) ⇒ $.props.ctl.set($.props.menu(i))
+        (e, i, o) ⇒ $.props.ctl.set($.props.menu(i)._2)
 
-      val toggleButton = Button("Tables", (e: ReactEvent) ⇒ toggle, Button.Primary)
+      val toggleButton = Button("Editors", (e: ReactEvent) ⇒ toggle, Button.Primary)
     }
 
     val userInfo = UserInfo("arne")
 
-    def baseProps(t: ClientTable) = EditorBaseProps(
+    def baseProps(t: EditorDesc) = EditorBaseProps(
       userInfo    = userInfo,
-      table       = t,
-      cachedDataF = cachedData(t.name),
+      editorDesc       = t,
+      cachedDataF = cachedData(t),
       ctl         = $.props.ctl,
       onResult    = onResult
     )
@@ -107,44 +106,33 @@ object EditorController {
     def renderLinked(reload:  Callback,
                      linked:  StrLinkedRows,
                      viaValU: U[StrValue]): ReactNode = {
-
-      val foundTableOpt = $.props.menu.collectFirst {
-        case RouteEditor(ct@ClientTable(linked.toCol.table, _, _, _)) ⇒ ct
-      }
+      val create =
+        EditorCreateRow(linked.desc)(EditorCreateRow.Props(
+          baseProps(linked.desc), linked, viaValU, reload
+        ))
+      def single =
+        EditorLinkedSingleRow()(EditorLinkedSingleRow.Props(
+          baseProps(linked.desc), linked, reload, create
+        ))
+      def multiple =
+        EditorLinkedMultipleRows(linked)(EditorLinkedMultipleRows.Props(
+          baseProps(linked.desc), linked, reload, create
+        ))
 
       <.div(
-        foundTableOpt match {
-          case Some(t) ⇒
-            val create =
-              EditorCreateRow(t)(EditorCreateRow.Props(
-                baseProps(t), linked, viaValU, reload
-              ))
-            def single =
-              EditorLinkedSingleRow()(EditorLinkedSingleRow.Props(
-                baseProps(t), linked, reload, create
-              ))
-            def multiple =
-              EditorLinkedMultipleRows(linked)(EditorLinkedMultipleRows.Props(
-                baseProps(t), linked, reload, create
-              ))
-
-            linked.rows.toList match {
-              case Nil        ⇒ create
-              case row :: Nil ⇒ single
-              case rows       ⇒ multiple
-            }
-          case None ⇒
-            <.h2(s"Table ${linked.toCol.table} is not exported")
-        }
-      )
-
+          linked.rows.toList match {
+            case Nil        ⇒ create
+            case row :: Nil ⇒ single
+            case rows       ⇒ multiple
+          }
+        )
     }
 
     def render(S: State) = {
       <.div(
         Styles.body,
         MuiAppBar(
-          title               = s"Slick-Crud${currentTable.opt.fold("")(t ⇒ s": ${t.name.value }")}",
+          title               = s"Slick-Crud${currentTable.opt.fold("")(t ⇒ s": ${t.title}")}",
           iconElementLeft     = nav.toggleButton,
           showMenuIconButton  = true
         )(),
@@ -159,7 +147,7 @@ object EditorController {
           <.div(Style.container,
             $.props.current match {
               case RouteChooseEditor         ⇒
-                <.h2("Choose a table")
+                <.h2("Choose an editor")
 
               case RouteEditor(t)        ⇒
                 EditorMultipleRows(t)(EditorMultipleRows.Props(
@@ -196,10 +184,16 @@ object EditorController {
     .configureSpec(installMuiContext)
     .build
 
-  def apply(menu:        List[RouteEditor],
+  def apply(menu:        Seq[RouteEditor],
             currentPage: Route)
-           (ctrl:        RouterCtl[Route]) =
-    component(Props(menu, currentPage, ctrl))
+           (ctrl:        RouterCtl[Route]) = {
+    val namedEditors = menu.collect {
+      case r@RouteEditor(EditorDesc(Some(name), _, _, _, _, _)) => name -> r
+    }
+    println(namedEditors)
+    component(Props(namedEditors, currentPage, ctrl))
+  }
+
 
   object Style extends StyleSheet.Inline {
     import dsl._

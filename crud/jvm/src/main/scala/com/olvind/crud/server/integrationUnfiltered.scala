@@ -1,29 +1,40 @@
 package com.olvind.crud
 package server
 
-import java.io.{InputStreamReader, InputStream, OutputStreamWriter}
+import java.io.{InputStream, InputStreamReader, OutputStreamWriter}
 import javax.servlet.http.HttpServletRequest
 
 import com.typesafe.scalalogging.LazyLogging
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
+import scala.util.{Failure, Success, Try}
 import unfiltered.filter.Plan
 import unfiltered.filter.request.ContextPath
-import unfiltered.request.{HttpRequest, Body, Seg}
+import unfiltered.request.{Body, HttpRequest, Seg}
 import unfiltered.response._
 import upickle.default._
 
-import scala.concurrent.{Future, Await}
-import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
-
 trait integrationUnfiltered extends serverEditors with integrationUpickle {
-  class IntegrationUnfiltered(val editors: List[Editor]) extends Plan with LazyLogging {
+
+  class IntegrationUnfiltered(editors: Seq[ServerEditor[_, _ <: AbstractTable[_], _, _]]) extends Plan with LazyLogging {
 
     object EditorList extends Editors {
-      override def tables() = editors.map(_.clientTable())
+      val parentEditors: Map[EditorId, Editor] =
+        editors.foldLeft[Map[EditorId, Editor]](Map.empty)(_ ++ _.parentEditors)
+
+      val editorMap: Map[EditorId, Editor] =
+        editors.map(e ⇒ e.desc.editorId → e).toMap
+
+      val allEditors = parentEditors ++ editorMap
+
+      override def editorDescs(): Seq[EditorDesc] =
+        allEditors.values.map(_.desc).toSeq
 
       def unapply(s: String): Option[Editor] =
-        editors.find(_.clientTable().name =:= TableName(s))
+        allEditors get EditorId(s)
     }
+
+    EditorList.allEditors foreach println
 
     final implicit class ResponseFunctionX(rf: ResponseFunction[Any]){
       //eliminate compiler warning for inferring Any when using ~>

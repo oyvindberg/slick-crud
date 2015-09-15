@@ -19,17 +19,21 @@ object EditorMultipleRows
   ) extends PropsB
 
   case class State(
-    params:      QueryParams,
-    data:        DataState,
-    cachedDataU: U[CachedData],
-    isUpdating:  Boolean,
-    isAtBottom:  Boolean) extends StateBP[State]{
+    validationFails: Seq[ValidationError],
+    params:          QueryParams,
+    data:            DataState,
+    cachedDataU:     U[CachedData],
+    isUpdating:      Boolean,
+    isAtBottom:      Boolean) extends StateBP[State]{
 
     override def withDataState(data: DataState) =
       copy(data = data)
 
     override def withCachedData(cd: CachedData) =
       copy(cachedDataU = cd)
+
+    override def withValidationFails(ves: Seq[ValidationError]) =
+      copy(validationFails = ves)
   }
 
   final case class Backend($: WrapBackendScope[Props, State])
@@ -57,12 +61,20 @@ object EditorMultipleRows
         case _ ⇒ Callback.empty
       }
 
+    override def handleNoRowFoundOnUpdate(id: StrRowId): Callback =
+      $.state.map(_.data) flatMap {
+        case HasDataState(rows) ⇒
+          val newRows = rows.filterNot(_.idOpt =:= Some(id))
+          setData(HasDataState(newRows), Callback.empty)
+        case _ ⇒ Callback.empty
+      }
+
     override def loadInitialData: Callback =
       $.state.flatMap(S ⇒ fetchRows(S.data, S.params.copy(page = PageNum.zero), append = false))
 
     def fetchRows(dataState: DataState, params: QueryParams, append: Boolean): Callback =
       $.modState(_.copy(isUpdating = true)) >>
-      asyncCb("Couldn't read rows", remote.read($.props.base.userInfo, params.some).call())
+      asyncCb.applyEither("Couldn't read rows", remote.read($.props.base.userInfo, params.some).call())()
         .commit {
           read ⇒
             val newData = (dataState, append) match {
@@ -75,7 +87,7 @@ object EditorMultipleRows
     def onFilteringChanged(S: State): Option[Filter] ⇒ Callback =
       of ⇒ fetchRows(S.data, S.params.withFilter(of), append = false)
 
-    def onSort(S: State): ColumnInfo ⇒ Callback =
+    def onSort(S: State): ColumnRef ⇒ Callback =
       c ⇒ fetchRows(S.data, S.params.withSortedBy(c), append = false)
 
     val onScroll: dom.UIEvent ⇒ Callback = {
@@ -95,18 +107,18 @@ object EditorMultipleRows
         }
     }
 
-    override def renderData(S: State, table: ClientTable, rows: Seq[StrTableRow]): ReactElement = {
+    override def renderData(S: State, table: EditorDesc, rows: Seq[StrTableRow]): ReactElement = {
       <.div(
         TableStyle.container,
         FilteringDialog()(FilteringDialog.Props(
           dialogCtl,
-          $.props.table.columns,
+          $.props.editorDesc.columns,
           S.params.filter,
           onFilteringChanged(S),
           S.cachedDataU
         )),
         EditorToolbar()(EditorToolbar.Props(
-          table             = $.props.table,
+          editorDesc             = $.props.editorDesc,
           rows              = rows.size,
           cachedDataU       = S.cachedDataU,
           filterU           = S.params.filter.asUndef,
@@ -115,7 +127,7 @@ object EditorMultipleRows
           refreshU          = reInit,
           showAllU          = uNone,
           deleteU           = uNone,
-          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.table))),
+          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.editorDesc))),
           customElemU       = uNone
         )),
         <.div(
@@ -131,7 +143,9 @@ object EditorMultipleRows
               r,
               S.cachedDataU,
               r.idOpt.asUndef.map(updateValue),
-              showSingleRow
+              showSingleRow,
+              S.validationFails,
+              clearValidationFail(r.idOpt)
             ))
           ),
           S.isUpdating ?= renderWaiting
@@ -143,6 +157,7 @@ object EditorMultipleRows
   val component = ReactComponentB[Props]("EditorMultipleRows")
     .initialState_P(P ⇒
       State(
+        Seq.empty,
         QueryParams(QueryParams.defaultPageSize, PageNum.zero, sorting = None, filter = None),
         InitialState,
         P.base.cachedDataF.currentValueU,
@@ -157,7 +172,7 @@ object EditorMultipleRows
     .componentDidMount(_.backend.init)
     .build
 
-  def apply(table: ClientTable) =
-    component.withKey(table.name.value)
+  def apply(editorDesc: EditorDesc) =
+    component.withKey(editorDesc.editorId.value)
 }
 
