@@ -179,7 +179,7 @@ object TableCell {
       tableMatches && isAllowed && rowIdU.isDefined
     }
 
-    component.withKey(col.ref.name.value)(
+    component.withKey(rowIdU.map(_.value).getOrElse("") + col.ref.name.value)(
       Props(createMode = false, inputEnabled, col, clearError(col.ref), rowIdU, valueU, cachedDataU, updateU.liftParam(col.ref), showSingleRowU, errorU)
     )
   }

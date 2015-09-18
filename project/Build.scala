@@ -27,7 +27,7 @@ object Build extends sbt.Build {
     organization         := "com.olvind",
     scalaVersion         := "2.11.7",
     licenses             += ("Apache-2.0", url("http://opensource.org/licenses/Apache-2.0")),
-    scalacOptions       ++= Seq("-encoding", "UTF-8", "-feature", "-language:existentials", "-language:higherKinds", "-language:implicitConversions", "-unchecked", "-Xlint", "-Yno-adapted-args", "-Ywarn-dead-code", "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Xfuture", "-deprecation")
+    scalacOptions       ++= Seq("-encoding", "UTF-8", "-feature", "-language:existentials", "-language:higherKinds", "-language:implicitConversions", "-unchecked", "-Xlint", "-Yno-adapted-args", "-Ywarn-dead-code", "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Xfuture", "-deprecation") //"-Xlog-implicits"
   )
 
   lazy val buildSettings = Defaults.coreDefaultSettings ++ /* net.virtualvoid.sbt.graph.Plugin.graphSettings ++ */ releaseSettings ++ Seq(
@@ -58,10 +58,10 @@ object Build extends sbt.Build {
   )
 
   /* make `package` depend on fullOptJS, and copy resulting artifacts into crudJVM */
-  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fastOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
+  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fullOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
     case (_, fromDir, toDir) ⇒
       val files: Array[(File, File)] = IO listFiles fromDir collect {
-        case f if f.name contains ".js" ⇒ // ← also match «foo.js.map»
+        case f if f.name endsWith ".js" ⇒ // ← also match «foo.js.map»
           (f, toDir / "classes" / f.name)
       }
       IO.copy(files, overwrite = true)
