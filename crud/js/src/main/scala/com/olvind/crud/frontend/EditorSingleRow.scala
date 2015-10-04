@@ -34,11 +34,13 @@ object EditorSingleRow
       copy(validationFails = ves)
   }
 
-  final case class Backend($: WrapBackendScope[Props, State])
+  final case class Backend($: BackendScope[Props, State])
     extends BackendBUP[Props, State]{
 
+    implicit override val r = ComponentUpdates.InferredReusability[Props]
+
     override def handleDeleted(id: StrRowId): Callback =
-      showAllRows
+      fromProps.value().showAllRows
 
     override def patchRow(id: StrRowId, row: StrTableRow): Callback = {
       val StableId = id.some
@@ -49,41 +51,51 @@ object EditorSingleRow
     }
 
     override val loadInitialData: Callback =
-      asyncCb.applyEither(s"Couldn't load row ${$.props.rowId}", remote.readRow($.props.base.userInfo, $.props.rowId).call())()
-        .commit(read ⇒ read.row match {
-          case Some(row) => setData(HasDataState(row), Callback.empty)
-          case None      => handleNoRowFoundOnUpdate($.props.rowId)
-        } )
+      $.props.map(_.rowId).flatMap{ rowId =>
+        fromProps.value().asyncCb.applyEither(
+          s"Couldn't load row $rowId", r => u => r.readRow(u, rowId).call())()
+          .commit(read ⇒ read.row match {
+            case Some(row) => setData(HasDataState(row), Callback.empty)
+            case None      => handleNoRowFoundOnUpdate(rowId)
+          })
+      }
 
     override def handleNoRowFoundOnUpdate(id: StrRowId): Callback =
-      setData(
-        ErrorState(CrudException(
-          $.props.editorDesc.editorId,
-          ErrorMsg(s"No row found with id ${$.props.rowId}"),
-          "")),
-        Callback.empty
+      $.props.flatMap(P =>
+        setData(
+          ErrorState(CrudException(
+            P.editorDesc.editorId,
+            ErrorMsg(s"No row found with id ${P.rowId}"),
+            "")),
+          Callback.empty
+        )
       )
 
-    val refreshLinkedRows: Callback =
-      asyncCb.applyEither(s"Couldn't read linked rows for ${$.props.rowId}", remote.readLinkedRows($.props.base.userInfo, $.props.rowId).call())(ignoreError)
-        .commit(read ⇒ $.modState(_.copy(linkedRowsU = read.linkedRows)))
+    def refreshLinkedRows: Callback =
+      $.props.map(_.rowId).flatMap(rowId =>
+        fromProps.value().asyncCb.applyEither(
+          s"Couldn't read linked rows for $rowId",
+          r => u => r.readLinkedRows(u, rowId).call())(
+          ignoreError
+        ).commit(read ⇒ $.modState(_.copy(linkedRowsU = read.linkedRows)))
+      )
 
     override def setData(data: DataState, cb: Callback): Callback =
       super.setData(data, cb) >> refreshLinkedRows
 
-    override def renderData(S: State, t: EditorDesc, row: StrTableRow): ReactElement = {
+    override def renderData(P: Props, S: State, t: EditorDesc, row: StrTableRow): ReactElement = {
       <.div(TableStyle.container)(
         EditorToolbar()(EditorToolbar.Props(
-          editorDesc             = $.props.editorDesc,
+          editorDesc        = P.editorDesc,
           rows              = 1,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
           openFilterDialogU = uNone,
           isLinkedU         = uNone,
           refreshU          = reInit,
-          showAllU          = showAllRows,
-          deleteU           = deleteRow($.props.rowId),
-          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.editorDesc))),
+          showAllU          = fromProps.value().showAllRows,
+          deleteU           = deleteRow(P.rowId),
+          showCreateU       = (false, P.base.ctl.setEH(RouteCreateRow(P.editorDesc))),
           customElemU       = uNone
         )),
 
@@ -93,11 +105,11 @@ object EditorSingleRow
           S.linkedRowsU map {
             case linkedRows ⇒
               linkedRows map { linkedRow ⇒
-                val colIdx:  Int         = $.props.editorDesc.columns indexWhere (_.ref =:= linkedRow.fromCol)
+                val colIdx:  Int         = P.editorDesc.columns indexWhere (_.ref =:= linkedRow.fromCol)
                 val colIdxU: U[Int]      = colIdx.undef filter (_ =/= -1)
                 val viaValU: U[StrValue] = colIdxU map row.values
 
-                $.props.renderLinked(loadInitialData, linkedRow, viaValU)
+                P.renderLinked(loadInitialData, linkedRow, viaValU)
               }
           }
         )
@@ -120,7 +132,7 @@ object EditorSingleRow
                 clearValidationFail(row.idOpt),
                 S.cachedDataU,
                 row.idOpt.map(updateValue).asUndef,
-                showSingleRow)(
+                fromProps.value().showSingleRow)(
                 t, col, uid, uv, ue)
             )
         )
@@ -136,7 +148,7 @@ object EditorSingleRow
         uNone
       )
     )
-    .backend($ ⇒ Backend(WrapBackendScope($)))
+    .backend(Backend)
     .render($ ⇒ $.backend.render($.props, $.state))
     .configure(ComponentUpdates.inferred("EditorSingleRow"))
     .componentDidMount(_.backend.init)

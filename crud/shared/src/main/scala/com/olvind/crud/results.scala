@@ -1,10 +1,10 @@
 package com.olvind.crud
 
-sealed abstract class CrudResult(editorId: EditorId,  
+sealed abstract class CrudResult(editorId: EditorId,
                                  oid:      Option[StrRowId],
                                  oc:       Option[ColumnRef]) {
   def desc: String
-  
+
   final def formatted = {
     val t  = s"Editor ${editorId.value}".some
     val c  = oc.map(c ⇒ s"column ${c.name.value} in table ${c.table.value}")

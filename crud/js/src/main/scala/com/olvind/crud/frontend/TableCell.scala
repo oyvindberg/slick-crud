@@ -3,6 +3,7 @@ package frontend
 
 import chandu0101.scalajs.react.components.materialui.MuiCheckBox
 import japgolly.scalajs.react._
+import japgolly.scalajs.react.extra.Px
 import japgolly.scalajs.react.extra.router.RouterCtl
 import japgolly.scalajs.react.vdom.prefix_<^._
 import org.scalajs.dom.ext.KeyCode
@@ -23,126 +24,130 @@ object TableCell {
     errorU:         U[ErrorMsg]){
     def tableName = column.ref.table
   }
+  implicit val r0 = ComponentUpdates.InferredReusability[Props]
 
   case class State(contentU: U[StrValue])
 
-  final case class Backend($: WrapBackendScope[Props, State]) {
+  final case class Backend($: BackendScope[Props, State]) {
     val selectedAttr = ^.selected := "selected"
     val disabledAttr = ^.disabled := "disabled"
     val checkedAttr  = ^.checked  := "checked"
     val booleanVals  = Seq(true, false).map(b ⇒ StrValue(b.toString))
 
-    val onEditFinishedU: U[U[StrValue] ⇒ Callback] =
-      $.props.onUpdateU flatMap {
-        onUpdate ⇒ (uv: U[StrValue]) ⇒
-          uv.filterNot(_.undef =:= $.props.valueU).map(onUpdate).voidU
-      }
+    lazy val fromProps = Px.cbA($.props).map(FromProps)
 
-    val onCheckChangedU: U[(ReactEventI, Boolean) ⇒ Callback] =
-      onEditFinishedU map {
-        f ⇒ (e, b) ⇒ f(StrValue(b.toString))
-      }
+    case class FromProps(P: Props){
 
-    val onSelectChangedU: U[ReactEventI ⇒ Callback] =
-      onEditFinishedU.map {
-        f ⇒ e ⇒ f(StrValue(e.target.value))
-      }
+      val onEditFinishedU: U[U[StrValue] ⇒ Callback] =
+        P.onUpdateU flatMap {
+          onUpdate ⇒ (uv: U[StrValue]) ⇒
+            uv.filterNot(_.undef =:= P.valueU).map(onUpdate).voidU
+        }
 
-    val goToRowU: U[ReactEvent ⇒ Callback] = for {
-      rowId         ← $.props.rowIdU
-      showSingleRow ← $.props.showSingleRowU
-    } yield showSingleRow.setEH(rowId)
+      val onCheckChangedU: U[(ReactEventI, Boolean) ⇒ Callback] =
+        onEditFinishedU map {
+          f ⇒ (e, b) ⇒ f(StrValue(b.toString))
+        }
 
-    val onEditCanceled: Callback =
-      $.modState(_.copy(contentU = $.props.valueU))
+      val onSelectChangedU: U[ReactEventI ⇒ Callback] =
+        onEditFinishedU.map {
+          f ⇒ e ⇒ f(StrValue(e.target.value))
+        }
 
-    val onEdit: ReactKeyboardEventI ⇒ Callback =
-      _.nativeEvent.keyCode match {
-        case KeyCode.Escape               ⇒ onEditCanceled
-        case _                            ⇒ $.props.clearError
-      }
+      val goToRowU: U[ReactEvent ⇒ Callback] = for {
+        rowId         ← P.rowIdU
+        showSingleRow ← P.showSingleRowU
+      } yield showSingleRow.setEH(rowId)
 
-    val onChange: ReactKeyboardEventI ⇒ Callback =
-      e ⇒ $.modState(_.copy(contentU = StrValue(e.target.value)))
+      val onEditCanceled: Callback =
+        $.modState(_.copy(contentU = P.valueU))
 
-    def render(S: State): ReactElement = {
-      val c = $.props.column
+      val onEdit: ReactKeyboardEventI ⇒ Callback =
+        _.nativeEvent.keyCode match {
+          case KeyCode.Escape               ⇒ onEditCanceled
+          case _                            ⇒ P.clearError
+        }
+
+      val onChange: ReactKeyboardEventI ⇒ Callback =
+        e ⇒ $.modState(_.copy(contentU = StrValue(e.target.value)))
+    }
+
+    def render(P: Props, S: State): ReactElement = {
       val ors: Option[Seq[StrValue]] =
-        $.props.cachedDataU.toOption.map(_.restrictedValues).flatMap(
+        P.cachedDataU.toOption.map(_.restrictedValues).flatMap(
           _.collectFirst{
-            case (c.`ref`, values) ⇒ values
+            case (P.column.ref, values) ⇒ values
           }
         )
-      val optional = c.isOptional || $.props.createMode
+      val optional = P.column.isOptional || P.createMode
 
-      val elem: ReactElement = (c.rendering, ors) match {
+      val elem: ReactElement = (P.column.rendering, ors) match {
         case (CellRendering.Link, _) ⇒
-          if ($.props.createMode)
-            normalInput(S, CellRendering.Text)
+          if (P.createMode)
+            normalInput(P, S, CellRendering.Text)
           else link(S)
 
-        case (CellRendering.Checkbox, _) ⇒
+        case (CellRendering.Checkbox, rs) ⇒
           if (optional)
-            select(S, isOptional = true, booleanVals)
+            select(P, S, isOptional = true, booleanVals)
           else
             MuiCheckBox(
-              onCheck        = onCheckChangedU,
+              onCheck        = fromProps.value().onCheckChangedU,
               defaultChecked = S.contentU =:= StrValue("true"),
-              disabled       = !$.props.inputEnabled
-            )
+              disabled       = !P.inputEnabled
+            )()
 
         case (_, Some(rs: Seq[StrValue])) ⇒
-          select(S, optional, rs)
+          select(P, S, optional, rs)
 
         case (r, _) =>
-          normalInput(S, r)
+          normalInput(P, S, r)
       }
 
       <.div(
         TableStyle.cell,
         elem,
-        $.props.errorU.map(
+        P.errorU.map(
           e ⇒ <.div(TableStyle.error, e.value)
         )
       )
     }
 
-    def select(S: State, isOptional: Boolean, vs: Seq[StrValue]) =
+    def select(P: Props, S: State, isOptional: Boolean, vs: Seq[StrValue]) =
      <.select(
-        ^.onChange           ==>? onSelectChangedU.liftParam,
+        ^.onChange           ==>? fromProps.value().onSelectChangedU.liftParam,
         ^.defaultValue        :=? S.contentU,
-       !$.props.inputEnabled   ?= disabledAttr,
+       !P.inputEnabled         ?= disabledAttr,
        isOptional              ?= <.option(^.value := ""),
         vs.map(v ⇒ <.option(v.value, ^.value := v))
      )
 
-    def normalInput(S: State, r: CellRendering) =
+    def normalInput(P: Props, S: State, r: CellRendering) =
       <.input(
         TableStyle.cell,
-        !$.props.inputEnabled ?= disabledAttr,
+        !P.inputEnabled ?= disabledAttr,
         ^.value              :=? S.contentU,
-        ^.onBlur            -->? onEditFinishedU.mapply(S.contentU),
+        ^.onBlur            -->? fromProps.value().onEditFinishedU.mapply(S.contentU),
         ^.`type`              := (if (r =:= CellRendering.Number) "number" else "text"),
-        ^.placeholder         := $.props.column.typeName,
+        ^.placeholder         := P.column.typeName,
         ^.autoComplete        := false,
-        ^.onKeyDown          ==> onEdit,
-        ^.onChange           ==> onChange
+        ^.onKeyDown          ==> fromProps.value().onEdit,
+        ^.onChange           ==> fromProps.value().onChange
       )
 
     def link(S: State) =
       Button(
         S.contentU.map(_.value),
-        goToRowU,
+        fromProps.value().goToRowU,
         Button.Secondary,
         small   = true,
-        enabled = goToRowU.isDefined
+        enabled = fromProps.value().goToRowU.isDefined
       )
   }
 
   private val component = ReactComponentB[Props]("TableCell")
     .initialState_P(P ⇒ State(P.valueU))
-    .backend($ ⇒ Backend(WrapBackendScope($)))
-    .render($ ⇒ $.backend.render($.state))
+    .renderBackend[Backend]
     .componentWillReceiveProps(($, P) ⇒
       $.modState(_.copy(contentU = P.valueU))
         .conditionally(P.valueU =/= $.props.valueU)

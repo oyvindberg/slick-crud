@@ -31,9 +31,11 @@ object EditorLinkedMultipleRows
       copy(validationFails = ves)
   }
 
-  final case class Backend($: WrapBackendScope[Props, State])
+  final case class Backend($: BackendScope[Props, State])
     extends BackendBUL[Props, State]
     with OnUnmount {
+
+    override implicit val r = ComponentUpdates.InferredReusability[Props]
 
     val toggleShowCreate: ReactEvent ⇒ Callback =
       e ⇒ $.modState(S ⇒ S.copy(showCreate = !S.showCreate))
@@ -42,14 +44,14 @@ object EditorLinkedMultipleRows
       <.div(
         TableStyle.container,
         EditorToolbar()(EditorToolbar.Props(
-          editorDesc             = $.props.editorDesc,
+          editorDesc        = P.editorDesc,
           rows              = P.rows.size,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
           openFilterDialogU = uNone,
-          isLinkedU         = $.props.linkedRows,
+          isLinkedU         = P.linkedRows,
           refreshU          = reInit,
-          showAllU          = showAllRows,
+          showAllU          = fromProps.value().showAllRows,
           deleteU           = uNone,
           showCreateU       = (S.showCreate, toggleShowCreate),
           customElemU       = uNone
@@ -71,7 +73,7 @@ object EditorLinkedMultipleRows
               r,
               S.cachedDataU,
               r.idOpt.asUndef.map(updateValue),
-              showSingleRow,
+              fromProps.value().showSingleRow,
               S.validationFails,
               clearValidationFail(r.idOpt)
             ))
@@ -83,8 +85,7 @@ object EditorLinkedMultipleRows
 
   val component = ReactComponentB[Props]("EditorMultipleRows")
     .initialState_P(P ⇒ State(Seq.empty, showCreate = false, P.base.cachedDataF.currentValueU))
-    .backend($ ⇒ Backend(WrapBackendScope($)))
-    .render($ ⇒ $.backend.render($.props, $.state))
+    .renderBackend[Backend]
     .configure(ComponentUpdates.inferred("EditorMultipleRows"))
     .componentDidMount(_.backend.init)
     .build

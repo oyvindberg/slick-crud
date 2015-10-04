@@ -36,11 +36,11 @@ object EditorMultipleRows
       copy(validationFails = ves)
   }
 
-  final case class Backend($: WrapBackendScope[Props, State])
+  final case class Backend($: BackendScope[Props, State])
     extends BackendBUP[Props, State]
     with OnUnmount {
 
-    val dialogCtl = new FilteringDialog.DialogController
+    override implicit val r = ComponentUpdates.InferredReusability[Props]
 
     override def handleDeleted(id: StrRowId): Callback =
       $.state.map(_.data).flatMap{
@@ -69,12 +69,14 @@ object EditorMultipleRows
         case _ ⇒ Callback.empty
       }
 
-    override def loadInitialData: Callback =
+    override val loadInitialData: Callback =
       $.state.flatMap(S ⇒ fetchRows(S.data, S.params.copy(page = PageNum.zero), append = false))
 
     def fetchRows(dataState: DataState, params: QueryParams, append: Boolean): Callback =
       $.modState(_.copy(isUpdating = true)) >>
-      asyncCb.applyEither("Couldn't read rows", remote.read($.props.base.userInfo, params.some).call())()
+      fromProps.value().asyncCb.applyEither(
+        "Couldn't read rows",
+        remote => u => remote.read(u, params.some).call())()
         .commit {
           read ⇒
             val newData = (dataState, append) match {
@@ -107,27 +109,28 @@ object EditorMultipleRows
         }
     }
 
-    override def renderData(S: State, table: EditorDesc, rows: Seq[StrTableRow]): ReactElement = {
-      <.div(
-        TableStyle.container,
+    override def renderData(P: Props, S: State, table: EditorDesc, rows: Seq[StrTableRow]): ReactElement = {
+      val f: ReactComponentU[FilteringDialog.Props, FilteringDialog.State, FilteringDialog.Backend, TopNode] =
         FilteringDialog()(FilteringDialog.Props(
-          dialogCtl,
-          $.props.editorDesc.columns,
+          P.base.editorDesc.columns,
           S.params.filter,
           onFilteringChanged(S),
           S.cachedDataU
-        )),
+        ))
+      <.div(
+        TableStyle.container,
+        f,
         EditorToolbar()(EditorToolbar.Props(
-          editorDesc             = $.props.editorDesc,
+          editorDesc        = P.editorDesc,
           rows              = rows.size,
           cachedDataU       = S.cachedDataU,
           filterU           = S.params.filter.asUndef,
-          openFilterDialogU = dialogCtl.openDialog,
+          openFilterDialogU = uNone,//f.backend.openDialog,
           isLinkedU         = uNone,
           refreshU          = reInit,
           showAllU          = uNone,
           deleteU           = uNone,
-          showCreateU       = (false, $.props.base.ctl.setEH(RouteCreateRow($.props.editorDesc))),
+          showCreateU       = (false, P.base.ctl.setEH(RouteCreateRow(P.editorDesc))),
           customElemU       = uNone
         )),
         <.div(
@@ -143,7 +146,7 @@ object EditorMultipleRows
               r,
               S.cachedDataU,
               r.idOpt.asUndef.map(updateValue),
-              showSingleRow,
+              fromProps.value().showSingleRow,
               S.validationFails,
               clearValidationFail(r.idOpt)
             ))
@@ -165,7 +168,7 @@ object EditorMultipleRows
         isAtBottom = false
       )
     )
-    .backend($ ⇒ Backend(WrapBackendScope($)))
+    .backend(Backend)
     .render($ ⇒ $.backend.render($.props, $.state))
     .configure(ComponentUpdates.inferred("EditorMultipleRows"))
     .configure(EventListener[dom.UIEvent].install("scroll", _.backend.onScroll, _ => dom.window))

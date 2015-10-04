@@ -52,13 +52,13 @@ case class ColumnDesc(
 }
 
 case class EditorDesc(
-  editorName: Option[EditorName],
+  editorName: EditorName,
   editorId:   EditorId,
   mainTable:  TableName,
   columns:    List[ColumnDesc],
   mainCols:   List[ColumnDesc],
   isEditable: Boolean) {
-  def title = editorName map (n => s"Editor ${n.value}") getOrElse s"Table ${mainTable.value}"
+  def title = s"Editor ${editorName.value}"
 
   override def toString = s"EditorDesc(${mainTable.value})"
 }
@@ -76,7 +76,7 @@ case class StrRowId(value: String) extends AnyVal {
   def asValue = StrValue(value)
 }
 case class StrLinkedRows(
-  desc:      EditorDesc,
+  editorId:  EditorId,
   fromCol:   ColumnRef,
   toCol:     ColumnRef,
   rows:      Seq[StrTableRow]

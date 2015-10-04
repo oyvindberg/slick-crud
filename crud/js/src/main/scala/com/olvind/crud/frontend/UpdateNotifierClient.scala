@@ -24,11 +24,11 @@ object UpdateNotifierClient {
               openOnMount = true,
               message     = s.formatted + s" (${d.toMillis} ms))",
               style       = bottom
-            )
+            )()
 
           case (TimedT(started, d, f: CrudFailure), idx) ⇒
             val bottom: js.Any = js.Dynamic.literal(bottom = s"${24 + idx * 55 }px")
-            MuiSnackBar(openOnMount = true, message = f.formatted, style = bottom)
+            MuiSnackBar(openOnMount = true, message = f.formatted, style = bottom)()
         }
         <.div(elems)
     }.build

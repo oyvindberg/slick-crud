@@ -47,9 +47,11 @@ object EditorCreateRow extends EditorBase {
       copy(validationFails = ves)
   }
 
-  final case class Backend($: WrapBackendScope[Props, State]) extends BackendB[Props, State]{
+  final case class Backend($: BackendScope[Props, State]) extends BackendB[Props, State]{
 
-    override def reInit = $.modState(_.copy(values = $.props.initialValues))
+    override implicit val r = ComponentUpdates.InferredReusability[Props]
+
+    override val reInit = $.modState(_.copy(values = $.props.runNow().initialValues))
 
     def handleFailed(f: CreateFailed): Callback =
       f.ve match {
@@ -66,8 +68,10 @@ object EditorCreateRow extends EditorBase {
 
     def trySave(values: Map[ColumnRef, U[StrValue]]): Callback = {
       val vs = values mapValues (_ getOrElse StrValue(""))
-      asyncCb.applyEither("Couldn't create new row", remote.create($.props.base.userInfo, vs).call())(handleFailed)
-        .commit(created ⇒ $.props.onCreateU getOrElse $.modState(_.copy(created = created.oid)))
+      fromProps.value().asyncCb.applyEither(
+        "Couldn't create new row", r => u => r.create(u, vs).call())(
+        handleFailed
+      ).commit(created ⇒ $.props.runNow().onCreateU getOrElse $.modState(_.copy(created = created.oid)))
     }
 
     def renderSuccess(table: EditorDesc,
@@ -119,14 +123,14 @@ object EditorCreateRow extends EditorBase {
         TableStyle.centered,
         <.div(TableStyle.container)(
           EditorToolbar()(EditorToolbar.Props(
-            editorDesc             = $.props.editorDesc,
+            editorDesc        = P.editorDesc,
             rows              = 0,
             cachedDataU       = S.cachedDataU,
             filterU           = uNone,
             openFilterDialogU = uNone,
             isLinkedU         = P.wasLinkedU,
             refreshU          = reInit,
-            showAllU          = showAllRows,
+            showAllU          = fromProps.value().showAllRows,
             deleteU           = uNone,
             showCreateU       = uNone,
             customElemU       = Button("Save", (e: ReactEvent) ⇒ trySave(S.values), Button.Primary)
@@ -149,8 +153,7 @@ object EditorCreateRow extends EditorBase {
         created = uNone
       )
     )
-    .backend($ ⇒ Backend(WrapBackendScope($)))
-    .render($ ⇒ $.backend.render($.props, $.state))
+    .renderBackend[Backend]
     .componentDidMount(_.backend.init)
     .configure(ComponentUpdates.inferred("EditorCreateRow"))
     .build

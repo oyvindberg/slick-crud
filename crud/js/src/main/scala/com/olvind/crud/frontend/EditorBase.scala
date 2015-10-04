@@ -47,8 +47,11 @@ trait EditorBaseUpdaterPrimary extends EditorBaseUpdater with EditorBasePrimary 
 
     final override def handleUpdated(id: StrRowId): Callback =
       $.state.flatMap{ S ⇒
-        asyncCb.applyEither(s"Couldn't reload row $id", remote.readRow($.props.base.userInfo, id).call())(ignoreError)
-          .commit(read ⇒ read.row.fold(handleNoRowFoundOnUpdate(id))(row => patchRow(id, row)))
+        fromProps.value().asyncCb.applyEither(
+          s"Couldn't reload row $id",
+          remote => u => remote.readRow(u, id).call())(
+          ignoreError
+        ).commit(read ⇒ read.row.fold(handleNoRowFoundOnUpdate(id))(row => patchRow(id, row)))
       }
   }
 }
@@ -64,10 +67,10 @@ trait EditorBaseUpdaterLinked extends EditorBaseUpdater {
 
   trait BackendBUL[P <: PropsBUL, S <: StateB[S]] extends BackendBU[P, S]{
     final override def handleUpdated(id: StrRowId): Callback =
-      $.props.reload
+      $.props.flatMap(_.reload)
 
     final override def handleDeleted(id: StrRowId): Callback =
-      $.props.reload
+      $.props.flatMap(_.reload)
   }
 }
 
@@ -83,16 +86,16 @@ trait EditorBaseUpdater extends EditorBase {
       $.modState(_.withAddedValidationFails(Seq(ValidationError(f.id.some, f.col, f.e))))
 
     final def updateValue(id: StrRowId)(c: ColumnRef)(v: StrValue): Callback =
-      asyncCb.applyEither(
+      fromProps.value().asyncCb.applyEither(
         s"Could not update row $id",
-        remote.update($.props.base.userInfo, id, c, v).call())(
+        remote => u => remote.update(u, id, c, v).call())(
         handleUpdateFailed
       ).commit(_ ⇒ handleUpdated(id))
 
     final def deleteRow(id: StrRowId): Callback =
-      asyncCb.applyEither(
+      fromProps.value().asyncCb.applyEither(
         s"Could not delete row $id",
-        remote.delete($.props.base.userInfo, id).call())(
+        remote => u => remote.delete(u, id).call())(
         criticalError
       ).commit(_ ⇒ handleDeleted(id))
   }
@@ -116,7 +119,7 @@ trait EditorBasePrimary extends EditorBase {
   trait BackendBP[P <: PropsB, S <: StateBP[S]] extends BackendB[P, S]{
     def loadInitialData: Callback
 
-    def renderData(S: S, t: EditorDesc, data: Data): ReactElement
+    def renderData(P: P, S: S, t: EditorDesc, data: Data): ReactElement
 
     def setData(data: DataState, cb: Callback): Callback =
       $.modState(_.withDataState(data), cb)
@@ -134,13 +137,13 @@ trait EditorBasePrimary extends EditorBase {
     final lazy val renderWaiting = MuiCircularProgress(
       size = 2.0,
       mode = MuiProgressMode.INDETERMINATE
-    )
+    )()
 
     override final def render(P: P, S: S): ReactElement = {
       val content: ReactElement = S.data match {
         case InitialState      ⇒ renderWaiting
         case ErrorState(fail)  ⇒ <.pre(<.code(fail.formatted))
-        case HasDataState(row) ⇒ renderData(S, $.props.base.editorDesc, row)
+        case HasDataState(row) ⇒ renderData(P, S, P.base.editorDesc, row)
       }
       <.div(
         TableStyle.centered,
@@ -174,12 +177,16 @@ trait EditorBase {
   }
 
   trait BackendB[P <: PropsB, S <: StateB[S]] {
-    def $: WrapBackendScope[P, S]
+    def $: BackendScope[P, S]
+
+    implicit def r: Reusability[P]
+
+    final def ps: CallbackTo[(P, S)] = $.props.flatMap(p => $.state.map(s => (p, s)))
 
     def init: Callback =
-      $.props.base.cachedDataF commit {
+      $.props.flatMap(_.base.cachedDataF commit {
         cd ⇒ $.modState(_.withCachedData(cd))
-      }
+      })
 
     def reInit: Callback =
       Callback.empty
@@ -197,16 +204,20 @@ trait EditorBase {
     final def criticalError(fail: CrudFailure): Callback =
       Callback(dom.alert(fail.formatted))
 
-    final lazy val remote: ClientProxy[Editor, String, default.Reader, default.Writer] =
-      AjaxCall.forEditor($.props.base.editorDesc.editorId)[Editor]
+    lazy val fromProps = Px.cbA($.props).map(FromProps)
 
-    final lazy val asyncCb: AsyncCallback =
-      AsyncCallback($.props.base.onResult, criticalError, $.props.base.editorDesc.editorId)
+    final case class FromProps(P: P){
+      val remote: ClientProxy[Editor, String, default.Reader, default.Writer] =
+        AjaxCall.forEditor(P.base.editorDesc.editorId)[Editor]
 
-    final lazy val showSingleRow: RouterCtl[StrRowId] =
-      $.props.base.ctl.contramap[StrRowId](id ⇒ RouteEditorRow($.props.base.editorDesc, id))
+      val asyncCb: AsyncCallback =
+        AsyncCallback(remote, P.base.userInfo, P.base.onResult, criticalError, P.base.editorDesc.editorId)
 
-    final lazy val showAllRows: Callback =
-      $.props.base.ctl.set(RouteEditor($.props.editorDesc))
+      val showSingleRow: RouterCtl[StrRowId] =
+        P.base.ctl.contramap[StrRowId](id ⇒ RouteEditorRow(P.base.editorDesc, id))
+
+      val showAllRows: Callback =
+        P.base.ctl.set(RouteEditor(P.editorDesc))
+    }
   }
 }

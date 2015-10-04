@@ -1,9 +1,11 @@
 package com.olvind.crud
 package frontend
 
+import autowire.ClientProxy
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra.~=>
 import org.scalajs.dom.ext.Ajax
+import upickle.default
 import upickle.default._
 
 import scala.concurrent.Future
@@ -19,7 +21,7 @@ case class AjaxCall(urlPrefix: String) extends autowire.Client[String, Reader, W
     Ajax.post(
       url          = s"slick-crud-api/$urlPrefix/${req.path.mkString("/")}",
       data         = write(req.args),
-      timeout      = 40000
+      timeout      = 2000
     ).map(_.response.asInstanceOf[String])
 
   override def read [Result: Reader](p: String) = upickle.default.read[Result](p)
@@ -31,10 +33,10 @@ case class CFuture[T] private (underlying: Future[T]) extends AnyVal {
     underlying foreach (t ⇒ f(t).runNow())
     Callback.empty
   }
-  
+
   def currentValueU: U[T] =
     underlying.value.flatMap(_.toOption).asUndef
-  
+
   def map[TT](f: T ⇒ TT): CFuture[TT] =
     CFuture(underlying map f)
 
@@ -46,18 +48,20 @@ case class CFuture[T] private (underlying: Future[T]) extends AnyVal {
 }
 
 case class AsyncCallback(
+  remote:    ClientProxy[Editor, String, default.Reader, default.Writer],
+  user:      UserInfo,
   onResult:  TimedT[CrudResult] ~=> Callback,
   onFailure: CrudFailure ⇒ Callback,
   editorId:  EditorId){
 
   private def go[T](toResult:  T => CrudResult,
                      errorDesc: String,
-                     _f:        ⇒ Future[T]): CallbackTo[CFuture[T]] =
-  
+                     _f:        ⇒ ClientProxy[Editor, String, default.Reader, default.Writer] => UserInfo => Future[T]): CallbackTo[CFuture[T]] =
+
     CallbackTo[CFuture[T]](
       Clock { c ⇒
         val f: Future[CrudException \/ T] =
-          Try(_f) match {
+          Try(_f(remote)(user)) match {
             case Failure(th) ⇒
               val e = CrudException(editorId, ErrorMsg(th), "Couldn't connect")
               (onResult(c.timed(e)) >> onFailure(e)).runNow()
@@ -79,13 +83,13 @@ case class AsyncCallback(
 
   def apply[S <: CrudSuccess]
            (errorDesc:  String,
-            _f: ⇒ Future[S]): CallbackTo[CFuture[S]] =
+            _f: ⇒ ClientProxy[Editor, String, default.Reader, default.Writer] => UserInfo => Future[S]): CallbackTo[CFuture[S]] =
 
     go(identity, errorDesc, _f)
 
   def applyEither[F <: CrudFailure, S <: CrudSuccess]
                  (errorDesc:  String,
-                  _f: ⇒       Future[F \/ S])
+                  _f: ⇒       ClientProxy[Editor, String, default.Reader, default.Writer] => UserInfo => Future[F \/ S])
                  (onError:    F => Callback = onFailure) = {
 
     def toResult(e: F \/ S): CrudResult = e.fold(identity, identity)

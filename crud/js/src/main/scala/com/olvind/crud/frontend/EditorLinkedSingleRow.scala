@@ -30,8 +30,10 @@ object EditorLinkedSingleRow
       copy(validationFails = ves)
   }
 
-  final case class Backend($: WrapBackendScope[Props, State])
+  final case class Backend($: BackendScope[Props, State])
     extends BackendBUL[Props, State]{
+
+    override implicit val r = ComponentUpdates.InferredReusability[Props]
 
     val toggleShowCreate: ReactEvent ⇒ Callback =
       e ⇒ $.modState(S ⇒ S.copy(showCreate = !S.showCreate))
@@ -39,14 +41,14 @@ object EditorLinkedSingleRow
     override def render(P: Props, S: State): ReactElement = {
       <.div(TableStyle.container)(
         EditorToolbar()(EditorToolbar.Props(
-          editorDesc             = $.props.editorDesc,
+          editorDesc        = P.editorDesc,
           rows              = 1,
           cachedDataU       = S.cachedDataU,
           filterU           = uNone,
           openFilterDialogU = uNone,
           isLinkedU         = P.linkedRow,
           refreshU          = P.reload,
-          showAllU          = showAllRows,
+          showAllU          = fromProps.value().showAllRows,
           deleteU           = P.row.idOpt.asUndef map deleteRow,
           showCreateU       = (S.showCreate, toggleShowCreate),
           customElemU       = uNone
@@ -70,7 +72,7 @@ object EditorLinkedSingleRow
                   clearValidationFail(P.row.idOpt),
                   S.cachedDataU,
                   P.row.idOpt.map(updateValue).asUndef,
-                  showSingleRow)(
+                  fromProps.value().showSingleRow)(
                   t, col, uid, uv, ue)
               )
           )
@@ -81,8 +83,7 @@ object EditorLinkedSingleRow
   
   val component = ReactComponentB[Props]("EditorSingleRow")
     .initialState_P(P ⇒ State(Seq.empty, showCreate = false, P.base.cachedDataF.currentValueU))
-    .backend($ ⇒ Backend(WrapBackendScope($)))
-    .render($ ⇒ $.backend.render($.props, $.state))
+    .renderBackend[Backend]
     .configure(ComponentUpdates.inferred("EditorSingleRow"))
     .componentDidMount(_.backend.init)
     .build

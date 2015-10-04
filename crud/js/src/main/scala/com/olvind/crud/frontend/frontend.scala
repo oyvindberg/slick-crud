@@ -16,7 +16,7 @@ package object frontend{
   }
 
   implicit private [frontend] class OptionalToU[M[_], T](private val mt: M[T]) extends AnyVal {
-    @inline def asUndef(implicit O: Optional[M]): U[T] =
+    @inline def asUndef(implicit O: OptionLike[M]): U[T] =
       O.fold[T, U[T]](mt, uNone)(t ⇒ t)
   }
 
@@ -70,7 +70,7 @@ package object frontend{
   }
 
   implicit private [frontend] class OptionalAttrX(private val a: Attr) extends AnyVal {
-    @inline def :=?[M[_], T](mt: M[T])(implicit ev: AttrValue[T], O: Optional[M]) =
+    @inline def :=?[M[_], T](mt: M[T])(implicit ev: AttrValue[T], O: OptionLike[M]) =
       O.fold[T, U[TagMod]](mt, uNone)(t ⇒ a := t)
   }
 

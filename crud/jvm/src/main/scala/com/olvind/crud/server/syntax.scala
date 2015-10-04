@@ -3,7 +3,7 @@ package server
 
 import slick.lifted.CanBeQueryCondition
 
-trait syntax extends tableRefs {
+trait syntax extends serverEditors {
   import driver.api._
 
   /**
@@ -23,7 +23,7 @@ trait syntax extends tableRefs {
 
     BaseTableRef[ID, TABLE](table, isEditable, canDelete, idCol, implicitly, cr)
 
-  implicit class TableRefOps[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P](ref: TableRef[ID, TABLE, LP, P]){
+  implicit final class TableRefOps[ID: FlatRepShape, TABLE <: AbstractTable[_], LP, P](ref: TableRef[ID, TABLE, LP, P]){
 
     def projected[OLP, OP: CellRow]
                  (q: ref.Q ⇒ Query[OLP, OP, Seq]): TableRef[ID, TABLE, OLP, OP] =
@@ -36,10 +36,13 @@ trait syntax extends tableRefs {
     def linkedOn[OID, OTABLE <: AbstractTable[_], OLP, OP,
                  C: Cell: FlatRepShape, OC: FlatRepShape: Cell, R]
                 (fromCol: LP ⇒ Rep[C],
-                 other:   ⇒ TableRef[OID, OTABLE, OLP, OP])
+                 other:   ⇒ ServerEditor[OID, OTABLE, OLP, OP])
                 (toCol:   OLP ⇒ Rep[OC])
                 (pred:    (Rep[C], Rep[OC]) ⇒ Rep[R])
                 (implicit ev: CanBeQueryCondition[Rep[R]]): TableRef[ID, TABLE, LP, P] =
-      LinkingTableRef[ID, TABLE, LP, P, OID, OTABLE, OLP, OP, C, OC, R](ref, fromCol, toCol, pred)(other)
+      LinkingTableRef[ID, TABLE, LP, P, OID, OTABLE, OLP, OP, C, OC, R](ref, fromCol, toCol, pred)(other.ref, other.editorId)
+
+    def build(editorId: EditorId, editorName: EditorName, n: UpdateNotifier): ServerEditor[ID, TABLE, LP, P] =
+      new ServerEditor[ID, TABLE, LP, P](editorId, editorName, ref, n)
   }
 }

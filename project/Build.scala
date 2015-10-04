@@ -8,8 +8,10 @@ object Build extends sbt.Build {
   import ScalaJSPlugin.{autoImport ⇒ sjs}, sjs.toScalaJSGroupID
 
   object versions {
-    val scalaJsReact = "0.10.0-SNAPSHOT"
-    val scalaCss     = "0.3.0"
+    def snap(s: String) = s + "-SNAPSHOT"
+    val scalaJsReact = snap("0.10.0")
+    val scalaCss     = snap("0.4.0")
+    val components   = snap("0.2.0")
     val unfiltered   = "0.8.4"
     val slick        = "3.0.2"
   }
@@ -30,7 +32,7 @@ object Build extends sbt.Build {
     scalacOptions       ++= Seq("-encoding", "UTF-8", "-feature", "-language:existentials", "-language:higherKinds", "-language:implicitConversions", "-unchecked", "-Xlint", "-Yno-adapted-args", "-Ywarn-dead-code", "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Xfuture", "-deprecation") //"-Xlog-implicits"
   )
 
-  lazy val buildSettings = Defaults.coreDefaultSettings ++ /* net.virtualvoid.sbt.graph.Plugin.graphSettings ++ */ releaseSettings ++ Seq(
+  lazy val buildSettings = Defaults.coreDefaultSettings ++ releaseSettings ++ Seq(
     updateOptions       := updateOptions.value.withCachedResolution(cachedResoluton = true)
   )
 
@@ -43,7 +45,7 @@ object Build extends sbt.Build {
       "com.github.japgolly.scalajs-react"              %%% "extra"         % versions.scalaJsReact changing(),
       "com.github.japgolly.scalacss"                   %%% "core"          % versions.scalaCss,
       "com.github.japgolly.scalacss"                   %%% "ext-react"     % versions.scalaCss,
-      "com.github.chandu0101.scalajs-react-components" %%% "core"          % "0.2.0-SNAPSHOT" changing()
+      "com.github.chandu0101.scalajs-react-components" %%% "core"          % versions.components changing()
     ),
     sjs.emitSourceMaps := true,
     /* create javascript launcher. Searches for an object extends JSApp */
@@ -58,7 +60,7 @@ object Build extends sbt.Build {
   )
 
   /* make `package` depend on fullOptJS, and copy resulting artifacts into crudJVM */
-  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fullOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
+  def copyJsResources(toDirS: SettingKey[File]) = (sjs.fastOptJS in (crudJs, Compile), crossTarget in crudJs, toDirS).map{
     case (_, fromDir, toDir) ⇒
       val files: Array[(File, File)] = IO listFiles fromDir collect {
         case f if f.name endsWith ".js" ⇒ // ← also match «foo.js.map»

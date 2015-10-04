@@ -16,25 +16,19 @@ import upickle.default._
 
 trait integrationUnfiltered extends serverEditors with integrationUpickle {
 
-  class IntegrationUnfiltered(editors: Seq[ServerEditor[_, _ <: AbstractTable[_], _, _]]) extends Plan with LazyLogging {
+  class IntegrationUnfiltered(editors: Editor*) extends Plan with LazyLogging {
 
     object EditorList extends Editors {
-      val parentEditors: Map[EditorId, Editor] =
-        editors.foldLeft[Map[EditorId, Editor]](Map.empty)(_ ++ _.parentEditors)
 
       val editorMap: Map[EditorId, Editor] =
         editors.map(e ⇒ e.desc.editorId → e).toMap
 
-      val allEditors = parentEditors ++ editorMap
-
       override def editorDescs(): Seq[EditorDesc] =
-        allEditors.values.map(_.desc).toSeq
+        editorMap.values.map(_.desc).toSeq
 
       def unapply(s: String): Option[Editor] =
-        allEditors get EditorId(s)
+        editorMap get EditorId(s)
     }
-
-    EditorList.allEditors foreach println
 
     final implicit class ResponseFunctionX(rf: ResponseFunction[Any]){
       //eliminate compiler warning for inferring Any when using ~>

@@ -23,7 +23,7 @@ object EditorToolbar {
     customElemU:       U[ReactElement]
   )
 
-  final case class Backend($: WrapBackendScope[Props, Unit]){
+  final case class Backend($: BackendScope[Props, Unit]){
 
     def title(P: Props) = {
       val s1 = P.editorDesc.title
@@ -91,7 +91,7 @@ object EditorToolbar {
       import scalaz.syntax.std.list._
 
       MuiToolbar(style = style)(
-        MuiToolbarGroup(key = "left")(MuiToolbarTitle(text = title(P))),
+        MuiToolbarGroup(key = "left")(MuiToolbarTitle(text = title(P))()),
         MuiToolbarGroup(key = "right")(btns.flatten.intersperse(<.span(^.padding := "5px")) :_*)
       )
     }
@@ -99,8 +99,7 @@ object EditorToolbar {
 
   private val component = ReactComponentB[Props]("EditorToolbar")
     .stateless
-    .backend($ ⇒ Backend(WrapBackendScope($)))
-    .render($ ⇒ $.backend.render($.props))
+    .renderBackend[Backend]
     .configure(ComponentUpdates.inferredNoState("EditorToolbar"))
     .build
 
