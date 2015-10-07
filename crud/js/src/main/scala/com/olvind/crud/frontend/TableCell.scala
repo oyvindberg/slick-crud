@@ -24,6 +24,7 @@ object TableCell {
     errorU:         U[ErrorMsg]){
     def tableName = column.ref.table
   }
+
   implicit val r0 = ComponentUpdates.InferredReusability[Props]
 
   case class State(contentU: U[StrValue])
@@ -70,18 +71,20 @@ object TableCell {
 
       val onChange: ReactKeyboardEventI ⇒ Callback =
         e ⇒ $.modState(_.copy(contentU = StrValue(e.target.value)))
-    }
 
-    def render(P: Props, S: State): ReactElement = {
-      val ors: Option[Seq[StrValue]] =
+      val restrictedValues: Option[Seq[StrValue]] =
         P.cachedDataU.toOption.map(_.restrictedValues).flatMap(
           _.collectFirst{
             case (P.column.ref, values) ⇒ values
           }
         )
+    }
+
+    def render(P: Props, S: State): ReactElement = {
+      val cb       = fromProps.value()
       val optional = P.column.isOptional || P.createMode
 
-      val elem: ReactElement = (P.column.rendering, ors) match {
+      val elem: ReactElement = (P.column.rendering, cb.restrictedValues) match {
         case (CellRendering.Link, _) ⇒
           if (P.createMode)
             normalInput(P, S, CellRendering.Text)
@@ -92,7 +95,7 @@ object TableCell {
             select(P, S, isOptional = true, booleanVals)
           else
             MuiCheckBox(
-              onCheck        = fromProps.value().onCheckChangedU,
+              onCheck        = cb.onCheckChangedU,
               defaultChecked = S.contentU =:= StrValue("true"),
               disabled       = !P.inputEnabled
             )()
@@ -148,9 +151,9 @@ object TableCell {
   private val component = ReactComponentB[Props]("TableCell")
     .initialState_P(P ⇒ State(P.valueU))
     .renderBackend[Backend]
-    .componentWillReceiveProps(($, P) ⇒
-      $.modState(_.copy(contentU = P.valueU))
-        .conditionally(P.valueU =/= $.props.valueU)
+    .componentWillReceiveProps(receiveProps ⇒
+      receiveProps.$.modState(_.copy(contentU = receiveProps.nextProps.valueU))
+        .conditionally(receiveProps.currentProps.valueU =/= receiveProps.nextProps.valueU)
         .void
     )
     .configure(ComponentUpdates.inferred("TableCell"))

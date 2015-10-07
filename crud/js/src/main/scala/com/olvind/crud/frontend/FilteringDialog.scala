@@ -114,8 +114,9 @@ object FilteringDialog {
     .initialState_P(P ⇒ State(P, P.initial))
     .renderBackend[Backend]
     .configure(ComponentUpdates.inferred("Filtering"))
-    .componentWillReceiveProps(($, P) ⇒ $.setState(State(P, P.initial)))
-    .build
+    .componentWillReceiveProps(receiveProps ⇒
+      receiveProps.$.setState(State(receiveProps.nextProps, receiveProps.nextProps.initial))
+    ).build
 
   def apply() =
     component
