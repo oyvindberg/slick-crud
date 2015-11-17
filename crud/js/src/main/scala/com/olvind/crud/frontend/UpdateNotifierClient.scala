@@ -1,7 +1,7 @@
 package com.olvind.crud
 package frontend
 
-import chandu0101.scalajs.react.components.materialui.MuiSnackBar
+import chandu0101.scalajs.react.components.materialui.MuiSnackbar
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.vdom.prefix_<^._
 
@@ -20,7 +20,7 @@ object UpdateNotifierClient {
           case (TimedT(started, d, s: CrudSuccess), idx) ⇒
             /* css hack so we can display several, and with more text*/
             val bottom: js.Any = js.Dynamic.literal(bottom = s"${24 + idx * 55 }px", maxWidth="750px")
-            MuiSnackBar(
+            MuiSnackbar(
               openOnMount = true,
               message     = s.formatted + s" (${d.toMillis} ms))",
               style       = bottom
@@ -28,7 +28,7 @@ object UpdateNotifierClient {
 
           case (TimedT(started, d, f: CrudFailure), idx) ⇒
             val bottom: js.Any = js.Dynamic.literal(bottom = s"${24 + idx * 55 }px")
-            MuiSnackBar(openOnMount = true, message = f.formatted, style = bottom)()
+            MuiSnackbar(openOnMount = true, message = f.formatted, style = bottom)()
         }
         <.div(elems)
     }.build

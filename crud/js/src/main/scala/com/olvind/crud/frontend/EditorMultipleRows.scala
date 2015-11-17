@@ -19,12 +19,13 @@ object EditorMultipleRows
   ) extends PropsB
 
   case class State(
-    validationFails: Seq[ValidationError],
-    params:          QueryParams,
-    data:            DataState,
-    cachedDataU:     U[CachedData],
-    isUpdating:      Boolean,
-    isAtBottom:      Boolean) extends StateBP[State]{
+    validationFails:  Seq[ValidationError],
+    params:           QueryParams,
+    data:             DataState,
+    cachedDataU:      U[CachedData],
+    isUpdating:       Boolean,
+    isAtBottom:       Boolean,
+    filterDialogOpen: Boolean) extends StateBP[State]{
 
     override def withDataState(data: DataState) =
       copy(data = data)
@@ -86,6 +87,12 @@ object EditorMultipleRows
             setData(newData, $.modState(_.copy(params = params, isUpdating = false)))
         }
 
+    val openFilteringDialog: Callback =
+      $.modState(_.copy(filterDialogOpen = true))
+
+    val closeFilteringDialog: Callback =
+      $.modState(_.copy(filterDialogOpen = false))
+
     def onFilteringChanged(S: State): Option[Filter] ⇒ Callback =
       of ⇒ fetchRows(S.data, S.params.withFilter(of), append = false)
 
@@ -110,13 +117,15 @@ object EditorMultipleRows
     }
 
     override def renderData(P: Props, S: State, table: EditorDesc, rows: Seq[StrTableRow]): ReactElement = {
-      val f: ReactComponentU[FilteringDialog.Props, FilteringDialog.State, FilteringDialog.Backend, TopNode] =
-        FilteringDialog()(FilteringDialog.Props(
-          P.base.editorDesc.columns,
-          S.params.filter,
-          onFilteringChanged(S),
-          S.cachedDataU
-        ))
+      val f = FilteringDialog()(FilteringDialog.Props(
+        cols           = P.base.editorDesc.columns,
+        initial        = S.params.filter,
+        onParamsChange = onFilteringChanged(S),
+        cachedDataU    = S.cachedDataU,
+        dialogOpen     = S.filterDialogOpen,
+        closeDialog    = closeFilteringDialog
+      ))
+
       <.div(
         TableStyle.container,
         f,
@@ -125,7 +134,7 @@ object EditorMultipleRows
           rows              = rows.size,
           cachedDataU       = S.cachedDataU,
           filterU           = S.params.filter.asUndef,
-          openFilterDialogU = uNone,//f.backend.openDialog,
+          openFilterDialogU = openFilteringDialog,
           isLinkedU         = uNone,
           refreshU          = reInit,
           showAllU          = uNone,
@@ -165,7 +174,8 @@ object EditorMultipleRows
         InitialState,
         P.base.cachedDataF.currentValueU,
         isUpdating = false,
-        isAtBottom = false
+        isAtBottom = false,
+        filterDialogOpen = false
       )
     )
     .backend(Backend)

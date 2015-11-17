@@ -2,6 +2,7 @@ package com.olvind.crud
 package frontend
 
 import autowire._
+import chandu0101.scalajs.react.components.RefHolder
 import chandu0101.scalajs.react.components.materialui._
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra._
@@ -46,9 +47,10 @@ object EditorController {
           }
       }
     
-    lazy val fromProps = Px.cbA($.props).map(FromProps)
-    
-    final case class FromProps(P: Props){
+    val fromProps  = Px.cbA($.props).map(new FromProps(_))
+    val leftNavRef = RefHolder[MuiLeftNavM]
+
+    final class FromProps(P: Props){
       
       object currentTable {
         def index: U[Int] = 
@@ -60,17 +62,15 @@ object EditorController {
       }
       
       object nav {
-        val leftNavRef = "leftNav"
-  
-        val menuItems: js.Array[MuiMenuItem] =
+        val menuItems: js.Array[MuiMenuItemJson] =
           P.menu.toJsArray.map{
-            case (name, r) ⇒ MuiMenuItem(text = name.value, payload = r.t.mainTable.value)
+            case (name, r) ⇒ MuiMenuItemJson(text = name.value, payload = r.t.mainTable.value)
           }
   
         val toggle: Callback =
-          Callback($.refs(leftNavRef).foreach(_.asInstanceOf[MuiLeftNavM].toggle()))
+          leftNavRef().map(_.toggle())
   
-        val onTableChosen: (ReactEvent, Int, js.Object) ⇒ Callback =
+        val onTableChosen: (ReactEvent, Int, js.Any) ⇒ Callback =
           (e, i, o) ⇒ P.ctl.set(P.menu(i)._2)
   
         val toggleButton = Button("Editors", (e: ReactEvent) ⇒ toggle, Button.Primary)
@@ -88,7 +88,7 @@ object EditorController {
         menuItems     = nav.menuItems,
         docked        = false,
         selectedIndex = currentTable.index,
-        ref           = nav.leftNavRef,
+        ref           = leftNavRef.set,
         onChange      = nav.onTableChosen
       )()
 
@@ -171,7 +171,7 @@ object EditorController {
     .initialState(State(Nil))
     .renderBackend[Backend]
     .configure(ComponentUpdates.inferred("EditorController"))
-    .configureSpec(installMuiContext)
+    .configureSpec(ThemeInstaller.installMuiContext())
     .build
 
   def apply(menu:        Seq[RouteEditor],

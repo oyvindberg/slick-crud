@@ -1,7 +1,7 @@
 package com.olvind.crud
 package frontend
 
-import chandu0101.scalajs.react.components.materialui.MuiCheckBox
+import chandu0101.scalajs.react.components.materialui.MuiCheckbox
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra.Px
 import japgolly.scalajs.react.extra.router.RouterCtl
@@ -45,7 +45,7 @@ object TableCell {
             uv.filterNot(_.undef =:= P.valueU).map(onUpdate).voidU
         }
 
-      val onCheckChangedU: U[(ReactEventI, Boolean) ⇒ Callback] =
+      val onCheckChangedU: U[(ReactEvent, Boolean) ⇒ Callback] =
         onEditFinishedU map {
           f ⇒ (e, b) ⇒ f(StrValue(b.toString))
         }
@@ -94,7 +94,7 @@ object TableCell {
           if (optional)
             select(P, S, isOptional = true, booleanVals)
           else
-            MuiCheckBox(
+            MuiCheckbox(
               onCheck        = cb.onCheckChangedU,
               defaultChecked = S.contentU =:= StrValue("true"),
               disabled       = !P.inputEnabled
@@ -153,8 +153,8 @@ object TableCell {
     .renderBackend[Backend]
     .componentWillReceiveProps(receiveProps ⇒
       receiveProps.$.modState(_.copy(contentU = receiveProps.nextProps.valueU))
-        .conditionally(receiveProps.currentProps.valueU =/= receiveProps.nextProps.valueU)
-        .void
+//        .conditionally(receiveProps.currentProps.valueU =/= receiveProps.nextProps.valueU)
+//        .void
     )
     .configure(ComponentUpdates.inferred("TableCell"))
     .build

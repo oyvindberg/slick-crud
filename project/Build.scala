@@ -9,8 +9,8 @@ object Build extends sbt.Build {
 
   object versions {
     def snap(s: String) = s + "-SNAPSHOT"
-    val scalaJsReact = snap("0.10.0")
-    val scalaCss     = snap("0.4.0")
+    val scalaJsReact = "0.10.1"
+    val scalaCss     = "0.3.1"
     val components   = snap("0.2.0")
     val unfiltered   = "0.8.4"
     val slick        = "3.0.2"

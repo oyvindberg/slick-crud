@@ -54,7 +54,7 @@ object Main extends JSApp {
     AjaxCall("editors")[Editors].editorDescs().call().onComplete{
       case Success(editors) ⇒
         val router = Router(baseUrl, routerConfig(editors).logToConsole)()
-        React.render(router, dom.document.getElementById("app"))
+        ReactDOM.render(router, dom.document.getElementById("app"))
       case Failure(th) ⇒
         th.printStackTrace()
         dom.alert(s"Failed to start application: ${th.getMessage}")

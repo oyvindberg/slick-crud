@@ -63,9 +63,9 @@ object EditorLinkedMultipleRows
             P.createElem.some.filter(_ ⇒ S.showCreate)
           ),
           TableHeader()(TableHeader.Props(
-            editorDesc    = P.editorDesc,
-            sortingU = uNone,
-            onSort   = uNone
+            editorDesc = P.editorDesc,
+            sortingU   = uNone,
+            onSort     = uNone
           )),
           P.rows.map(
             r ⇒ TableRow(r)(TableRow.Props(

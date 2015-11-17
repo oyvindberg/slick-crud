@@ -135,8 +135,8 @@ trait EditorBasePrimary extends EditorBase {
     }
 
     final lazy val renderWaiting = MuiCircularProgress(
-      size = 2.0,
-      mode = MuiProgressMode.INDETERMINATE
+      size = 2,
+      mode = MuiCircularProgressMode.INDETERMINATE
     )()
 
     override final def render(P: P, S: S): ReactElement = {
@@ -204,9 +204,9 @@ trait EditorBase {
     final def criticalError(fail: CrudFailure): Callback =
       Callback(dom.alert(fail.formatted))
 
-    lazy val fromProps = Px.cbA($.props).map(FromProps)
+    lazy val fromProps = Px.cbA($.props).map(new FromProps(_))
 
-    final case class FromProps(P: P){
+    final class FromProps(P: P){
       val remote: ClientProxy[Editor, String, default.Reader, default.Writer] =
         AjaxCall.forEditor(P.base.editorDesc.editorId)[Editor]
 

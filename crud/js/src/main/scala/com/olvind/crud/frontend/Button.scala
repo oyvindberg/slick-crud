@@ -27,7 +27,7 @@ object Button {
     .render_P(P ⇒
       MuiRaisedButton(
         label       = P.label,
-        onMouseUp   = P.onClickU,
+        onClick     = P.onClickU,
         primary     = P.tpe =:= Primary,
         secondary   = P.tpe =:= Secondary,
         labelStyle  = smallLabelU.filter(_ ⇒ P.small),

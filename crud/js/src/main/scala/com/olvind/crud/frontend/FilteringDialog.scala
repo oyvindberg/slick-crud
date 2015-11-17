@@ -1,8 +1,7 @@
 package com.olvind.crud
 package frontend
 
-import chandu0101.scalajs.react.components.callbackRef
-import chandu0101.scalajs.react.components.materialui.{MuiDropdownMenuItem => Item, _}
+import chandu0101.scalajs.react.components.materialui.{MuiDropDownMenuItem => Item, _}
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra.Px
 import japgolly.scalajs.react.vdom.prefix_<^._
@@ -11,13 +10,13 @@ import scala.scalajs.js
 import scalacss.ScalaCssReact._
 
 object FilteringDialog {
-  private val dialogRef = Ref.toJS[MuiDialogM]("FilteringDialog")
-
   case class Props(
     cols:           Seq[ColumnDesc],
     initial:        Option[Filter],
     onParamsChange: Option[Filter] ⇒ Callback,
-    cachedDataU:    U[CachedData]                    
+    cachedDataU:    U[CachedData],
+    dialogOpen:     Boolean,
+    closeDialog:    Callback
   )
   implicit val r0 = ComponentUpdates.InferredReusability[Props]
 
@@ -36,14 +35,9 @@ object FilteringDialog {
 
   final case class Backend($: BackendScope[Props, State]){
 
-    val dialogRefC:  CallbackOption[MuiDialogM] = callbackRef(dialogRef, $)
-    val openDialog:  Callback                   = dialogRefC.map(_.show())
-    val closeDialog: Callback                   = dialogRefC.map(_.dismiss())
-    
     lazy val fromProps = Px.cbA($.props).map(FromProps)
 
     case class FromProps(P: Props) {
-
       object cols {
         def idx(needle: String, haystack: js.Array[Item]): U[Int] =
           haystack.indexWhere(_.payload =:= needle).undef.filter(_ =/= -1)
@@ -55,7 +49,7 @@ object FilteringDialog {
           (e, idx, i) ⇒ $.modState(_.copy(chosenColumn = P.cols(idx), valueU = uNone))
 
         def dropdown(S: State): ReactElement =
-          MuiDropdownMenu(
+          MuiDropDownMenu(
             menuItems     = cols.items,
             selectedIndex = idx(S.chosenColumn.name.value, cols.items),
             onChange      = cols.onSelect
@@ -63,10 +57,10 @@ object FilteringDialog {
       }
 
       def onApply(c: ColumnDesc)(text: StrValue): ReactEvent ⇒ Callback =
-        _ ⇒ closeDialog >> P.onParamsChange(Filter(c.ref, text).some)
+        _ ⇒ P.closeDialog >> P.onParamsChange(Filter(c.ref, text).some)
 
       val onClear: ReactEvent ⇒ Callback =
-        _ ⇒ closeDialog >> P.onParamsChange(None)
+        _ ⇒ P.closeDialog >> P.onParamsChange(None)
 
       val clearBtn: ReactElement =
         Button(
@@ -80,18 +74,19 @@ object FilteringDialog {
       v ⇒ $.modState(_.copy(valueU = v))
 
     def render(P: Props, S: State): ReactElement = {
+      val fp = fromProps.value()
 
       val applyBtn: ReactElement =
         Button(
           labelU    = "Apply filter",
-          onClickU  = S.valueU.map(fromProps.value().onApply(S.chosenColumn)),
+          onClickU  = S.valueU.map(fp.onApply(S.chosenColumn)),
           tpe       = Button.Primary,
           enabled   = S.valueU.isDefined
         )
 
       MuiDialog(title   = "Filtering",
-                actions = js.Array(fromProps.value().clearBtn, applyBtn),
-                ref     = dialogRef)(
+                actions = js.Array(fp.clearBtn, applyBtn),
+                open    = P.dialogOpen)(
         <.div(
           TableStyle.row,
           fromProps.value().cols.dropdown(S),
