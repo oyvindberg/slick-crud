@@ -17,7 +17,7 @@ slick-crud is available for slick 3.0.0 on scala 2.11.
  
 Initial idea and implementation by [@teigen][teigen], maintenance/rewrite by [@elacin][elacin]
 
-[Demo application](https://slick-crud.herokuapp.com)
+[Demo application](http://olvind.com/slick-crud)
 
 ## Usage
 
