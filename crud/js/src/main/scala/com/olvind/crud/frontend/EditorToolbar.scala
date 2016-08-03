@@ -3,29 +3,33 @@ package frontend
 
 import chandu0101.scalajs.react.components.materialui.{MuiToolbar, MuiToolbarGroup, MuiToolbarTitle}
 import japgolly.scalajs.react._
+import japgolly.scalajs.react.extra.Reusability
 import japgolly.scalajs.react.vdom.prefix_<^._
 
 import scala.scalajs.js
 
 object EditorToolbar {
 
-  case class Props(
-    editorDesc:        EditorDesc,
-    rows:              Int,
-    cachedDataOpt:     Option[CachedData],
-    filterU:           U[Filter],
-    openFilterDialogU: U[Callback],
-    isLinkedU:         U[StrLinkedRows],
-    refreshU:          U[Callback],
-    showAllU:          U[Callback],
-    deleteU:           U[Callback],
-    showCreateU:       U[(Boolean, ReactEvent ⇒ Callback)],
-    customElemU:       U[ReactElement]
+  final case class Props(
+    editorDesc:          EditorDesc,
+    rows:                Int,
+    refresh:             Callback,
+    showAll:             Callback,
+    cachedDataOpt:       Option[CachedData]    = None,
+    filterOpt:           Option[Filter]        = None,
+    openFilterDialogOpt: Option[Callback]      = None,
+    isLinkedOpt:         Option[StrLinkedRows] = None,
+    deleteOpt:           Option[Callback]      = None,
+    showCreateOpt:       Option[Callback]      = None,
+    customElemOpt:       Option[ReactElement]  = None
   )
+
+  private implicit val ReusableProps: Reusability[Props] =
+    Reusability.by((P: Props) => (P.editorDesc, P.rows, P.cachedDataOpt))
 
   private final case class Backend($: BackendScope[Props, Unit]){
 
-    def title(P: Props) = {
+    def title(P: Props): String = {
       val (main: String, numRowsOpt: Option[String]) =
         (P.editorDesc.title, P.rows) match {
           case (name, 0) ⇒ (s"Create new row for $name", None)
@@ -39,11 +43,11 @@ object EditorToolbar {
           case CachedData(_, length) ⇒ s"of ${length.rows} rows"
         } filter (_ ⇒ P.rows > 0),
 
-        P.filterU.toOption map {
+        P.filterOpt map {
           case Filter(c, v) ⇒ s"for ${c.name.value} like ${v.value}"
         },
 
-        P.isLinkedU.toOption map {
+        P.isLinkedOpt map {
           case StrLinkedRows(_, fromCol, toCol, _) ⇒
             s"linked on ${toCol.name.value} = ${fromCol.table.value}.${fromCol.name.value}"
         }
@@ -65,26 +69,25 @@ object EditorToolbar {
         margin = "5px"
       )
 
-    def render(P: Props) = {
+    def render(P: Props): ReactElement = {
       val btns =
         List[Option[ReactNode]](
-          P.showCreateU.toOption.map{
-            case (isShowing, f) ⇒
-              Button("Create new row", f, if (isShowing) Button.Secondary else Button.Normal)
-          },
-          P.deleteU.toOption.map(f ⇒
-            Button("Delete row", (e: ReactEvent) ⇒ f, Button.Normal)
+          P.showCreateOpt.map(f ⇒
+            Button("Create new row", Some((e: ReactEvent) ⇒ f), Button.Normal)
           ),
-          P.openFilterDialogU.toOption.map(f ⇒
-            Button("Filter rows", (e: ReactEvent) ⇒ f, Button.Normal)
+          P.deleteOpt.map(f ⇒
+            Button("Delete row", Some((e: ReactEvent) ⇒ f), Button.Normal)
           ),
-          P.showAllU.toOption.map(f ⇒
-            Button(s"See all ${P.editorDesc.mainTable.value}", (e: ReactEvent) ⇒ f, Button.Normal)
+          P.openFilterDialogOpt.map(f ⇒
+            Button("Filter rows", Some((e: ReactEvent) ⇒ f), Button.Normal)
           ),
-          P.refreshU.toOption.map(f ⇒
-            Button("Refresh", (e: ReactEvent) ⇒ f, Button.Normal)
+          Some(
+            Button(s"See all ${P.editorDesc.mainTable.value}", Some((e: ReactEvent) ⇒ P.showAll), Button.Normal)
           ),
-          P.customElemU.toOption
+          Some(
+            Button("Refresh", Some((e: ReactEvent) ⇒ P.refresh), Button.Normal)
+          ),
+          P.customElemOpt
         )
 
       MuiToolbar(style = style)(
@@ -95,11 +98,12 @@ object EditorToolbar {
   }
 
 
-  private val component = ReactComponentB[Props]("EditorToolbar")
-    .stateless
-    .renderBackend[Backend]
-    .configure(ComponentUpdates.inferredNoState("EditorToolbar"))
-    .build
+  private val component =
+    ReactComponentB[Props]("EditorToolbar")
+      .stateless
+      .renderBackend[Backend]
+      .configure(ShouldUpdate.apply)
+      .build
 
   def apply(p: Props): ReactElement =
     component(p)

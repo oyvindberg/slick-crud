@@ -1,7 +1,7 @@
 package com.olvind.crud
 package server
 
-import org.scalatest.FunSuite
+import org.scalatest.{Assertion, FunSuite}
 import slick.ast.ColumnOption
 import slick.driver.H2Driver
 
@@ -12,7 +12,7 @@ class AstParserTest
   override lazy val driver = H2Driver
   import driver.api._
 
-  def myAssert[E, U, R](q: Query[E, U, Seq], shouldEqual: R)(op: Query[E, U, Seq] ⇒ R) = {
+  def myAssert[E, U, R](q: Query[E, U, Seq], shouldEqual: R)(op: Query[E, U, Seq] ⇒ R): Unit = {
     assertResult(shouldEqual, q.result.statements.mkString(","))(op(q))
   }
   def c(s: String, isAutoIncrement: Boolean = false) = {

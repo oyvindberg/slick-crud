@@ -70,7 +70,7 @@ trait serverEditors extends crudActions {
     private lazy val staticRestricted: RestrictedValues =
       ref.metadata.stringifiers.flatMap {
         case (columnRef, stringifier) ⇒
-          stringifier.enumValuesOpt map (
+          stringifier.enumValuesOpt.toSeq map (
             vs ⇒ (columnRef, (vs map (v => StrValue(stringifier encode v))).toSeq)
           )
       }.toMap

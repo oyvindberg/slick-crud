@@ -2,16 +2,16 @@ package com.olvind.crud
 
 import com.olvind.stringifiers.DecodeFail
 
-case class Coordinate (
+final case class Coordinate (
   editorId: EditorId,
   rowOpt:   Option[StrRowId],
   colOpt:   Option[ColumnRef]) {
 
-  final def formatted = {
-    val t  = s"Editor ${editorId.value}".some
-    val c  = colOpt.map(c ⇒ s"column ${c.name.value} in table ${c.table.value}")
-    val id = rowOpt.map(id ⇒ s"id ${id.value}")
-    List(t, c, id).flatten.mkString("", ", ", ": ")
+  def formatted: String = {
+    val title       = s"Editor ${editorId.value}"
+    val colTitleOpt = colOpt.map(c ⇒ s"column ${c.name.value} in table ${c.table.value}")
+    val idOpt       = rowOpt.map(id ⇒ s"id ${id.value}")
+    ((title +: colTitleOpt.toList) ++ idOpt.toList).mkString("", ", ", ": ")
   }
 }
 
@@ -19,7 +19,7 @@ sealed trait XRes[+T]{
   final def map[R](f: T => R): XRes[R] =
     this match {
       case XSuccess(t) => XSuccess(f(t))
-      case other       => other.asInstanceOf[XRes[R]]
+      case f: XFail    => f
     }
 }
 

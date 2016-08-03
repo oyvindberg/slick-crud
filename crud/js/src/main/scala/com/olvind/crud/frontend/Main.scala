@@ -2,6 +2,7 @@ package com.olvind.crud
 package frontend
 
 import autowire._
+import diode.react.{ModelProxy, ReactConnectProxy}
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra.router.StaticDsl.RouteB
 import japgolly.scalajs.react.extra.router._
@@ -16,32 +17,38 @@ object Main extends JSApp {
 
   def routerConfig(editors: Seq[EditorDesc]): RouterConfig[Route] =
     RouterConfigDsl[Route].buildConfig { dsl =>
-      def edPage(p: Route, ctl: RouterCtl[Route]) =
-        EditorController(editors.map(RouteEditor), p)(ctl)
+      val circuit: CrudCircuit =
+        CrudCircuit(Model.init(UserInfo("Arne"), editors))
+
+      val connector: ReactConnectProxy[Model] =
+        circuit.connect(circuit.zoom(identity))
+
+      def controller(p: Route, ctl: RouterCtl[Route]): ReactElement =
+        connector((model: ModelProxy[Model]) ⇒ EditorController(model, circuit.sendCb, p)(ctl))
 
       import dsl._
 
-      val table: RouteB[EditorDesc] =
+      val editor: RouteB[EditorId] =
         string(editors.map(_.editorId.value).mkString("|"))
-        .xmap[EditorDesc](s ⇒ editors.find(_.editorId.value =:= s).get)(_.editorId.value)
+          .xmap[EditorId](EditorId)(_.value)
 
-      val id: RouteB[StrRowId] =
+      val rowId: RouteB[StrRowId] =
         string("\\w+").xmap(StrRowId)(_.value)
 
       val oneRow: dsl.Rule =
-        dynamicRouteCT("#" / (table / "row" / id).caseClass[RouteEditorRow]) ~>
-          dynRenderR(edPage)
+        dynamicRouteCT("#" / (editor / "row" / rowId).caseClass[RouteEditorRow]) ~>
+          dynRenderR(controller)
 
       val createRow: dsl.Rule =
-        dynamicRouteCT("#" / (table / "create").caseClass[RouteCreateRow]) ~>
-          dynRenderR(edPage)
+        dynamicRouteCT("#" / (editor / "create").caseClass[RouteCreateRow]) ~>
+          dynRenderR(controller)
 
       val allRows: Rule =
-        dynamicRouteCT("#" / (table / "read").caseClass[RouteEditor]) ~>
-          dynRenderR(edPage)
+        dynamicRouteCT("#" / (editor / "read").caseClass[RouteEditor]) ~>
+          dynRenderR(controller)
 
       val chooseEditor: Rule =
-        staticRoute("#/", RouteChooseEditor) ~> renderR(ctl ⇒ edPage(RouteChooseEditor, ctl))
+        staticRoute("#/", RouteChooseEditor) ~> renderR(ctl ⇒ controller(RouteChooseEditor, ctl))
 
       (oneRow | createRow | allRows | chooseEditor) notFound
         redirectToPage(RouteChooseEditor)(Redirect.Replace)
@@ -50,7 +57,7 @@ object Main extends JSApp {
   Styles.load()
 
   @JSExport
-  override def main() =
+  override def main(): Unit =
     AjaxCall("editors")[Editors].editorDescs().call().onComplete{
       case Success(editors) ⇒
         val router = Router(baseUrl, routerConfig(editors).logToConsole)()

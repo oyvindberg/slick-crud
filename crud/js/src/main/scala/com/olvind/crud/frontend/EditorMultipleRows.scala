@@ -1,7 +1,6 @@
 package com.olvind.crud
 package frontend
 
-import autowire._
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra._
 import japgolly.scalajs.react.vdom.prefix_<^._
@@ -10,79 +9,32 @@ import org.scalajs.dom
 import scala.scalajs.js
 import scalacss.ScalaCssReact._
 
-object EditorMultipleRows
-  extends EditorBaseMultipleRows
-  with EditorBaseUpdaterPrimary {
+object EditorMultipleRows {
 
-  case class Props (
-    base: EditorBaseProps
-  ) extends PropsB
+  final case class Props (
+    sendAction:    ReusableFn[Action, Callback],
+    model:         EditorModel,
+    cachedDataOpt: Option[CachedData]
+  )
 
-  case class State(
-    validationFails:  Map[Option[StrRowId], Seq[ValidationError]],
-    params:           QueryParams,
-    data:             DataState,
-    cachedDataOpt:    Option[CachedData],
+  final case class State(
     isUpdating:       Boolean,
     isAtBottom:       Boolean,
-    filterDialogOpen: Boolean) extends StateBP[State]{
+    filterDialogOpen: Boolean
+  )
 
-    override def withDataState(data: DataState): State =
-      copy(data = data)
-
-    override def withCachedData(cd: CachedData): State =
-      copy(cachedDataOpt = cd.some)
-
-    override def withValidationFails(rowOpt: Option[StrRowId], ves: Seq[ValidationError]): State =
-      copy(validationFails = validationFails.updated(rowOpt, ves))
-  }
+  private implicit val ReusableProps: Reusability[Props] =
+    Reusability.caseClass[Props]
+  private implicit val ReusableState: Reusability[State] =
+    Reusability.caseClass[State]
 
   private final case class Backend($: BackendScope[Props, State])
-    extends BackendBUP[Props, State]
-    with OnUnmount {
+    extends OnUnmount {
 
-    override implicit val r = ComponentUpdates.InferredReusability[Props]
-
-    override def handleDeleted(id: StrRowId): Callback =
-      $.state.map(_.data).flatMap{
-        case HasDataState(rows) ⇒
-          setData(HasDataState(rows.filterNot(_.idOpt =:= id.some)), Callback.empty)
-        case _ ⇒ Callback.empty
-      }
-
-    override def patchRow(id: StrRowId, row: StrTableRow): Callback =
-      $.state.map(_.data) flatMap {
-        case HasDataState(rows) ⇒
-          val StableId = id.some
-          val newRows = rows map {
-            case StrTableRow(StableId, _) ⇒ row
-            case otherRow                 ⇒ otherRow
-          }
-          setData(HasDataState(newRows), Callback.empty)
-        case _ ⇒ Callback.empty
-      }
-
-    override def handleNoRowFoundOnUpdate(id: StrRowId): Callback =
-      $.state.map(_.data) flatMap {
-        case HasDataState(rows) ⇒
-          val newRows = rows.filterNot(_.idOpt =:= Some(id))
-          setData(HasDataState(newRows), Callback.empty)
-        case _ ⇒ Callback.empty
-      }
-
-    override val loadInitialData: Callback =
-      $.state.flatMap(S ⇒ fetchRows(S.data, S.params.copy(page = PageNum.zero), append = false))
-
-    def fetchRows(dataState: DataState, params: QueryParams, append: Boolean): Callback =
-      $.modState(_.copy(isUpdating = true)) >>
-      async((user, remote) => remote.read(user, params.some).call(), None){
-        case XSuccess(rows) =>
-          val newData = (dataState, append) match {
-            case (HasDataState(existing), true) ⇒ HasDataState(existing ++ rows)
-            case _                              ⇒ HasDataState(rows)
-          }
-          setData(newData, $.modState(_.copy(params = params, isUpdating = false)))
-      }
+    val loadData: Callback =
+      $.props.flatMap(
+        P => P.sendAction(FetchEditorData(P.model.editor.editorId))
+      )
 
     val openFilteringDialog: Callback =
       $.modState(_.copy(filterDialogOpen = true))
@@ -90,11 +42,8 @@ object EditorMultipleRows
     val closeFilteringDialog: Callback =
       $.modState(_.copy(filterDialogOpen = false))
 
-    def onFilteringChanged(S: State): Option[Filter] ⇒ Callback =
-      of ⇒ fetchRows(S.data, S.params.withFilter(of), append = false)
-
-    def onSort(S: State): ColumnRef ⇒ Callback =
-      c ⇒ fetchRows(S.data, S.params.withSortedBy(c), append = false)
+    val onSort: ReusableFn[ColumnRef, Callback] =
+      ReusableFn(c ⇒ $.props.flatMap(P ⇒ P.sendAction(FetchSortedData(P.model.editor.editorId, c))))
 
     val onScroll: dom.UIEvent ⇒ Callback = {
       e ⇒
@@ -104,88 +53,77 @@ object EditorMultipleRows
         val y          = d.documentElement.scrollHeight - w.innerHeight
         val isAtBottom = scrollY / y > 0.98
 
-        $.state.flatMap{
-          S ⇒
+        $.props.zip($.state).flatMap{
+          case (p, s) ⇒
             $.modState(
               _.copy(isAtBottom = isAtBottom),
-              fetchRows(S.data, S.params.withNextPage, append = true)
-            ).when(isAtBottom != S.isAtBottom && !S.isUpdating).void
+              p.sendAction(FetchMoreData(p.model.editor.editorId))
+            ).when(isAtBottom != s.isAtBottom && !s.isUpdating).void
         }
     }
 
-    override def renderData(P: Props, S: State, editorDesc: EditorDesc, rows: Seq[StrTableRow]): ReactElement = {
-      val fp = fromProps.value()
-
+    def render(P: Props, S: State): ReactElement = {
       val filterDialog = FilteringDialog(FilteringDialog.Props(
-        cols           = P.base.editorDesc.columns,
-        initial        = S.params.filter,
-        onParamsChange = onFilteringChanged(S),
-        cachedDataOpt  = S.cachedDataOpt,
+        sendAction     = P.sendAction,
+        editorId       = P.model.editor.editorId,
+        cols           = P.model.editor.columns,
+        initial        = P.model.queryParams.filterOpt,
+        cachedDataOpt  = P.cachedDataOpt,
         dialogOpen     = S.filterDialogOpen,
         closeDialog    = closeFilteringDialog
       ))
 
-      <.div(
-        TableStyle.container,
-        filterDialog,
+      def toolbar(numRows: Int) =
         EditorToolbar(EditorToolbar.Props(
-          editorDesc        = P.editorDesc,
-          rows              = rows.size,
-          cachedDataOpt     = S.cachedDataOpt,
-          filterU           = S.params.filter.asUndef,
-          openFilterDialogU = openFilteringDialog,
-          isLinkedU         = js.undefined,
-          refreshU          = reInit,
-          showAllU          = js.undefined,
-          deleteU           = js.undefined,
-          showCreateU       = (false, P.base.ctl.setEH(RouteCreateRow(P.editorDesc))),
-          customElemU       = js.undefined
-        )),
-        <.div(
-          TableStyle.table,
-          TableHeader(TableHeader.Props(
-            editorDesc = editorDesc,
-            sortingU   = S.params.sorting.asUndef,
-            onSort     = onSort(S)
-          )),
-          rows.map(row ⇒
-            TableRow(TableRow.Props(
-                editorDesc      = editorDesc,
-                row             = row,
-                cachedDataOpt   = S.cachedDataOpt,
-                onUpdateU       = row.idOpt.asUndef.map(updateValue),
-                showSingleRow   = fp.showSingleRow,
-                validationFails = S.validationFails,
-                clearError      = clearValidationFail(row.idOpt)
-              ))
-          ),
-          S.isUpdating ?= renderWaiting
-        )
-      )
+          editorDesc          = P.model.editor,
+          rows                = numRows,
+          showAll             = P.sendAction(Navigate(RouteEditor(P.model.editor.editorId))),
+          cachedDataOpt       = P.cachedDataOpt,
+          filterOpt           = P.model.queryParams.filterOpt,
+          openFilterDialogOpt = Some(openFilteringDialog),
+          refresh             = loadData,
+          showCreateOpt       = Some(P.sendAction(Navigate(RouteCreateRow(P.model.editor.editorId))))
+        ))
+
+      WaitingRows(P.model.rows){
+        rows ⇒
+          <.div(
+            TableStyle.container,
+            filterDialog,
+            toolbar(rows.size),
+            <.div(
+              TableStyle.table,
+              TableHeader(TableHeader.Props(
+                editor     = P.model.editor,
+                sortingOpt = P.model.queryParams.sortingOpt,
+                onSortOpt  = Some(onSort)
+              )),
+              rows.map(row ⇒
+                TableRow(TableRow.Props(
+                  sendAction      = P.sendAction,
+                  editor          = P.model.editor,
+                  row             = row,
+                  cachedDataOpt   = P.cachedDataOpt,
+                  validationFails = P.model.validationErrors.get(row.idOpt)
+                ))
+              ),
+              S.isUpdating ?= WaitingRows.renderWaiting
+            )
+          )
+      }
     }
   }
 
   private val component =
     ReactComponentB[Props]("EditorMultipleRows")
-      .initialState_P(P ⇒
-        State(
-          Map.empty,
-          QueryParams(QueryParams.defaultPageSize, PageNum.zero, sorting = None, filter = None),
-          InitialState,
-          P.base.cachedDataOpt,
-          isUpdating = false,
-          isAtBottom = false,
-          filterDialogOpen = false
-        )
-      )
-      .backend(Backend)
-      .render($ ⇒ $.backend.render($.props, $.state))
-      .configure(ComponentUpdates.inferred("EditorMultipleRows"))
+      .initialState(State(isUpdating = false, isAtBottom = false, filterDialogOpen = false))
+      .renderBackend[Backend]
+      .configure(ShouldUpdate.apply)
       .configure(EventListener[dom.UIEvent].install("scroll", _.backend.onScroll, _ => dom.window))
-      .componentDidMount(_.backend.init)
+      .componentWillMount(_.backend.loadData)
       .build
 
   def apply(p: Props): ReactElement =
-    component.withKey(p.editorDesc.editorId.value)(p)
+    component.withKey(p.model.editor.editorId.value)(p)
 }
 

@@ -7,12 +7,12 @@ import japgolly.scalajs.react._
 import scala.scalajs.js
 
 object Button {
-  case class Props(
-    label:    String,
-    onClickU: U[ReactEvent ⇒ Callback],
-    tpe:      ButtonType,
-    enabled:  Boolean,
-    small:    Boolean
+  final case class Props(
+    label:      String,
+    onClickOpt: Option[ReactEvent ⇒ Callback],
+    tpe:        ButtonType,
+    enabled:    Boolean,
+    small:      Boolean
   )
 
   sealed trait ButtonType
@@ -20,7 +20,7 @@ object Button {
   case object Primary   extends ButtonType
   case object Secondary extends ButtonType
 
-  private val smallLabelU: U[js.Any] =
+  private val smallLabel: js.Any =
     js.Dynamic.literal(fontSize = "smaller")
 
   private val component =
@@ -28,18 +28,18 @@ object Button {
       .render_P(P ⇒
         MuiRaisedButton(
           label      = P.label,
-          onTouchTap = P.onClickU,
+          onTouchTap = P.onClickOpt.asUndef,
           primary    = P.tpe =:= Primary,
           secondary  = P.tpe =:= Secondary,
-          labelStyle = smallLabelU.filter(_ ⇒ P.small),
-          disabled   = !P.enabled || P.onClickU.isEmpty
+          labelStyle = if (P.small) smallLabel else js.undefined,
+          disabled   = !P.enabled || P.onClickOpt.isEmpty
         )()
       ).build
 
-  def apply(labelU:   String,
-            onClickU: U[ReactEvent ⇒ Callback],
-            tpe:      ButtonType,
-            enabled:  Boolean = true,
-            small:    Boolean = false): ReactElement =
-    component.withKey(labelU)(Props(labelU, onClickU, tpe, enabled, small))
+  def apply(labelOpt:   String,
+            onClickOpt: Option[ReactEvent ⇒ Callback],
+            tpe:        ButtonType,
+            enabled:    Boolean = true,
+            small:      Boolean = false): ReactElement =
+    component.withKey(labelOpt)(Props(labelOpt, onClickOpt, tpe, enabled, small))
 }

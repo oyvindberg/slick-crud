@@ -1,11 +1,12 @@
 package com.olvind.crud
 package frontend
 
-import scalacss._
 import scalacss.Defaults._
 import scalacss.ScalaCssReact._
+import scalacss.internal.{FontFace, NonEmptyVector}
+import scalacss.internal.mutable.GlobalRegistry
 
-object Styles extends mutable.StyleSheet.Inline {
+object Styles extends StyleSheet.Inline {
   import dsl._
 
   val body = style(
@@ -15,11 +16,12 @@ object Styles extends mutable.StyleSheet.Inline {
   )
 
   def load(): Unit = {
-    mutable.GlobalRegistry.register(
+    GlobalRegistry.register(
       this,
       EditorController.Style,
       TableStyle
     )
-    mutable.GlobalRegistry.onRegistration(_.addToDocument())
+
+    GlobalRegistry.addToDocumentOnRegistration()
   }
 }

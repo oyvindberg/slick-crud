@@ -24,13 +24,13 @@ trait crudActions extends tableRefs with integrationDb with columnPickers with s
                   paramsOpt: Option[QueryParams]): CrudDbOp[Seq[StrTableRow]] = {
 
       val sortedQ: ref.Q ⇒ ref.Q =
-        q ⇒ paramsOpt.flatMap(_.sorting).fold(q) {
+        q ⇒ paramsOpt.flatMap(_.sortingOpt).fold(q) {
           case (colName, order) ⇒
             q sortBy (ColumnPicker(ref.query, colName) _ andThen sortOrder(order))
         }
 
       val filteredQ: ref.Q ⇒ ref.Q =
-        q ⇒ paramsOpt.flatMap(_.filter).fold(q) {
+        q ⇒ paramsOpt.flatMap(_.filterOpt).fold(q) {
           f ⇒
             q filter {
               table ⇒

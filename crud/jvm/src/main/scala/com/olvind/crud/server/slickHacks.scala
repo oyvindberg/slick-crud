@@ -2,6 +2,7 @@ package com.olvind.crud
 package server
 
 import slick.ast.BaseTypedType
+import scala.language.implicitConversions
 
 trait slickHacks extends integrationSlick {
   import driver.api._

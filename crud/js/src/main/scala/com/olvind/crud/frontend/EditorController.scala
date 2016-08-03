@@ -3,134 +3,116 @@ package frontend
 
 import chandu0101.scalajs.react.components.RefHolder
 import chandu0101.scalajs.react.components.materialui.{MuiAppBar, MuiDrawer, MuiDrawerM, MuiMenuItem, MuiMuiThemeProvider}
+import diode.react.ModelProxy
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.extra._
 import japgolly.scalajs.react.extra.router.RouterCtl
 import japgolly.scalajs.react.vdom.prefix_<^._
 
-import scala.concurrent.Future
 import scala.scalajs.js
-import scala.util.{Failure, Success}
 import scalacss.Defaults._
 import scalacss.ScalaCssReact._
 
 object EditorController {
 
-  case class Props(
-    menu:         Seq[(EditorName, RouteEditor)],
-    current:      Route,
-    ctl:          RouterCtl[Route],
-    lookupLinked: EditorId ⇒ Option[EditorDesc]
-  )
-  implicit val r0 = ComponentUpdates.InferredReusability[Props]
-  
-  case class State(
-    menuOpen: Boolean,
-    res: List[TimedRes]
-  )
+  final case class Props(
+    modelProxy: ModelProxy[Model],
+    dispatch:   ReusableFn[Action, Callback],
+    routerCtl:  RouterCtl[Route],
+    route:      Route){
+    def model: Model = modelProxy.value
+  }
 
-  val userInfo = UserInfo("arne") //todo
+  final case class State(menuOpen: Boolean)
+
+  private implicit val ReusableProps: Reusability[Props] =
+    Reusability.by((P: Props) => (P.modelProxy, P.model, P.route))
+
+  private implicit val ReusableState: Reusability[State] =
+    Reusability.caseClass[State]
 
   private final case class Backend($: BackendScope[Props, State]) extends TimerSupport {
-    val onResult: TimedRes ~=> Callback =
-      ReusableFn {
-        case (t: TimedRes) ⇒
-          $.modState(s ⇒ s.copy(res = t +: s.res)) >>
-          setTimeout($.modState(s ⇒ s.copy(res = s.res.filterNot(_ =:= t))), UpdateNotifierClient.ttl)
-      }
-    
-    val fromProps: Px[FromProps] =
-      Px.cbA($.props).map(new FromProps(_))
 
-    val leftNavRef = RefHolder[MuiDrawerM]
+    val leftNavRef: RefHolder[MuiDrawerM] =
+      RefHolder[MuiDrawerM]
 
-    final class FromProps(P: Props){
-      
-      object currentTable {
-        def index: U[Int] = 
-          P.menu.indexWhere(_._2.t.some =:= opt).uSome.filterNot(_ =:= -1)
-  
-        def opt: Option[EditorDesc] = P.current.some collect {
-          case RouteEditor(t) ⇒ t
-        }
-      }
-      
-      object nav {
-        val toggle: Callback =
-          $.modState(s => s.copy(menuOpen = !s.menuOpen))
+    val toggle: Callback =
+      $.modState(s => s.copy(menuOpen = !s.menuOpen))
 
-        val menuItems: js.Array[ReactElement] =
-          P.menu.toJsArray.map{
-            case (name, r: RouteEditor) ⇒
-              MuiMenuItem(
-                key         = name.value,
-                primaryText = name.value,
-                value       = r.t.mainTable.value,
-                onTouchTap  = (e: ReactTouchEventH) => (P.ctl set r) >> toggle
-              )()
-          }
-
-        val toggleButton: ReactElement =
-          Button("Editors", (e: ReactEvent) ⇒ toggle, Button.Primary)
+    def menuItems(model: Model, dispatch: ReusableFn[Action, Callback]): js.Array[ReactElement] =
+      model.data.map(_._2.editor).toJsArray.map{
+        editor ⇒
+          MuiMenuItem[EditorDesc](
+            key         = editor.editorId.value,
+            primaryText = editor.editorName.value,
+            value       = editor,
+            onTouchTap  = (e: ReactTouchEventH) => dispatch(Navigate(RouteEditor(editor.editorId))) >> toggle
+          )()
       }
 
-      def currentValue[T](f: Future[T]): Option[T] =
-        f.value.flatMap {
-          case Failure(_) => None
-          case Success(t) => Some(t)
-        }
+    def renderLinked(model:     Model,
+                     dispatch:  ReusableFn[Action, Callback],
+                     reload:    Callback)
+                    (linked:    StrLinkedRows,
+                     prefilled: Map[ColumnRef, StrValue]): ReactNode =
 
-      def baseProps(t: EditorDesc): EditorBaseProps =
-        EditorBaseProps(
-          userInfo      = userInfo,
-          editorDesc    = t,
-          cachedDataOpt = currentValue(Cache(userInfo, t)),
-          ctl           = P.ctl,
-          onResult      = onResult
-        )
+      model.editor(linked.editorId) match {
+        case Some(editorModel) ⇒
+          val create =
+            EditorCreateRow(EditorCreateRow.Props(
+              sendAction      = dispatch,
+              model           = editorModel,
+              cachedDataOpt   = model.cachedData.get(editorModel.editor.editorId),
+              wasLinkedOpt    = Some(linked),
+              prefilled       = prefilled
+            ))
 
-      def renderLinked(reload:  Callback,
-                       linked:  StrLinkedRows,
-                       viaValU: U[StrValue]): ReactNode = {
-        P.lookupLinked(linked.editorId) match {
-          case Some(desc) ⇒
-            val create =
-              EditorCreateRow(EditorCreateRow.Props(
-                baseProps(desc), linked, viaValU, reload
-              ))
+          <.div(
+            linked.rows.toList match {
+              case Nil ⇒
+                create
 
-            <.div(
-              linked.rows.toList match {
-                case Nil ⇒
-                  create
-                case row :: Nil ⇒
-                  EditorLinkedSingleRow(
-                    EditorLinkedSingleRow.Props(
-                      baseProps(desc), linked, reload, create
-                    )
+              case row :: Nil ⇒
+                EditorLinkedSingleRow(
+                  EditorLinkedSingleRow.Props(
+                    sendAction    = dispatch,
+                    editor        = editorModel.editor,
+                    cachedDataOpt = model.cachedData.get(editorModel.editor.editorId),
+                    linkedRow     = linked,
+                    reload        = reload,
+                    createElem    = create
                   )
-                case rows ⇒
-                  EditorLinkedMultipleRows(
-                    EditorLinkedMultipleRows.Props(
-                      baseProps(desc), linked, reload, create
-                    )
+                )
+
+              case rows ⇒
+                EditorLinkedMultipleRows(
+                  EditorLinkedMultipleRows.Props(
+                    sendAction    = dispatch,
+                    editor        = editorModel.editor,
+                    cachedDataOpt = model.cachedData.get(editorModel.editor.editorId),
+                    linkedRows    = linked,
+                    reload        = reload,
+                    createElem    = create
                   )
-              }
-            )
-          case None ⇒
-            <.div(s"Editor ${linked.editorId} is not exported")
-        }
+                )
+            }
+          )
+        case None ⇒
+          <.div(s"Editor ${linked.editorId} is not exported")
       }
-    }
 
     def render(P: Props, S: State): ReactElement = {
-      val fp = fromProps.value()
+      object Editor {
+        def unapply(eid: EditorId): Option[EditorModel] =
+          P.model.editor(eid)
+      }
+
       MuiMuiThemeProvider()(
         <.div(
           Styles.body,
           MuiAppBar(
-            title              = s"Slick-Crud${fp.currentTable.opt.fold("")(t ⇒ s": ${t.title}")}",
-            iconElementLeft    = fp.nav.toggleButton,
+            title              = s"Slick-Crud${P.model.currentEditorIdOpt(P.route).flatMap(P.model.editor).fold("")(e ⇒ s": ${e.editor.title}")}",
+            iconElementLeft    = Button("Editors", Some(_ ⇒ toggle), Button.Primary),
             showMenuIconButton = true
           )(),
           MuiDrawer(
@@ -138,35 +120,43 @@ object EditorController {
             ref             = leftNavRef.set,
             open            = S.menuOpen,
             onRequestChange = (open: Boolean, reason: String) => $.modState(_.copy(menuOpen = open))
-          )(fp.nav.menuItems),
+          )(menuItems(P.model, P.dispatch)),
           <.div(
             <.div(Style.container,
-              P.current match {
-                case RouteChooseEditor         ⇒
-                  <.h2("Choose an editor")
-
-                case RouteEditor(t)        ⇒
+              P.route match {
+                case RouteEditor(Editor(editorModel)) ⇒
                   EditorMultipleRows(EditorMultipleRows.Props(
-                    fp.baseProps(t)
+                    sendAction    = P.dispatch,
+                    model         = editorModel,
+                    cachedDataOpt = P.model.cachedData.get(editorModel.editor.editorId)
                   ))
 
-                case RouteEditorRow(t, rowId) ⇒
+                case RouteEditorRow(Editor(editorModel), rowId) ⇒
                   EditorSingleRow(EditorSingleRow.Props(
-                    fp.baseProps(t),
-                    rowId        = rowId,
-                    renderLinked = fp.renderLinked
+                    sendAction    = P.dispatch,
+                    model         = editorModel,
+                    cachedDataOpt = P.model.cachedData.get(editorModel.editor.editorId),
+                    rowId         = rowId,
+                    renderLinked  = renderLinked(
+                      model    = P.model,
+                      dispatch = P.dispatch,
+                      reload   = P.dispatch(FetchLinkedRows(editorModel.editor.editorId, rowId))
+                    )
                   ))
 
-                case RouteCreateRow(t) ⇒
+                case RouteCreateRow(Editor(editorModel)) ⇒
                   EditorCreateRow(EditorCreateRow.Props(
-                    fp.baseProps(t),
-                    wasLinkedU    = js.undefined,
-                    linkedViaValU = js.undefined,
-                    onCreateU     = js.undefined
+                    sendAction      = P.dispatch,
+                    model           = editorModel,
+                    cachedDataOpt   = P.model.cachedData.get(editorModel.editor.editorId),
+                    wasLinkedOpt    = None,
+                    prefilled       = Map.empty
                   ))
+
+                case _ ⇒
+                  <.h2("Choose an editor")
               }
-            ),
-            UpdateNotifierClient(S.res)
+            )
           )
         )
       )
@@ -175,28 +165,17 @@ object EditorController {
 
   private val component =
     ReactComponentB[Props]("EditorController")
-      .initialState(State(true, Nil))
+      .initialState_P(P ⇒ State(P.route =:= RouteChooseEditor))
       .renderBackend[Backend]
-      .configure(ComponentUpdates.inferred("EditorController"))
+      .configure(ShouldUpdate.apply)
+      .componentWillMount($ ⇒ $.props.modelProxy.dispatch(SetRouterCtl($.props.routerCtl)))
       .build
 
-  def apply(menu:        Seq[RouteEditor],
-            currentPage: Route)
-           (ctrl:        RouterCtl[Route]): ReactElement = {
-
-    val namedEditors: Seq[(EditorName, RouteEditor)] =
-      menu.map {
-        case r@RouteEditor(EditorDesc(name, _, _, _, _, _)) => name -> r
-      }
-
-    val lookupId: EditorId ⇒ Option[EditorDesc] =
-      Id ⇒ menu collectFirst {
-        case RouteEditor(d@EditorDesc(_, Id, _, _, _, _)) => d
-      }
-
-    component(Props(namedEditors, currentPage, ctrl, lookupId))
-  }
-
+  def apply(modelProxy: ModelProxy[Model],
+            dispatcher: ReusableFn[Action, Callback],
+            route:      Route)
+           (ctl:        RouterCtl[Route]): ReactElement =
+    component(Props(modelProxy, dispatcher, ctl, route))
 
   object Style extends StyleSheet.Inline {
     import dsl._

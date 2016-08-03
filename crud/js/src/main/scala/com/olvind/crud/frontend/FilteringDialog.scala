@@ -3,36 +3,40 @@ package frontend
 
 import chandu0101.scalajs.react.components.materialui.{MuiDialog, MuiDropDownMenu, MuiMenuItem}
 import japgolly.scalajs.react._
-import japgolly.scalajs.react.extra.Px
+import japgolly.scalajs.react.extra.{Px, Reusability, ReusableFn}
 import japgolly.scalajs.react.vdom.prefix_<^._
 
 import scala.scalajs.js
 import scalacss.ScalaCssReact._
 
 object FilteringDialog {
-  case class Props(
-    cols:           Seq[ColumnDesc],
-    initial:        Option[Filter],
-    onParamsChange: Option[Filter] ⇒ Callback,
-    cachedDataOpt:  Option[CachedData],
-    dialogOpen:     Boolean,
-    closeDialog:    Callback
+  final case class Props(
+    sendAction:    ReusableFn[Action, Callback],
+    editorId:      EditorId,
+    cols:          Seq[ColumnDesc],
+    initial:       Option[Filter],
+    cachedDataOpt: Option[CachedData],
+    dialogOpen:    Boolean,
+    closeDialog:   Callback
   )
 
-  implicit val r0 = ComponentUpdates.InferredReusability[Props]
-
-  case class State(
+  final case class State(
     chosenColumn: ColumnDesc,
-    valueU:       U[StrValue]
+    valueOpt:     Option[StrValue]
   )
 
   object State {
     def apply(P: Props, of: Option[Filter]): State =
       State(
         of flatMap (f ⇒ P.cols.find(_.ref =:= f.columnInfo)) getOrElse P.cols.head,
-        of.map(_.value).asUndef
+        of.map(_.value)
       )
   }
+
+  private implicit val ReusableProps: Reusability[Props] =
+    Reusability.byRef[Props]
+  private implicit val ReusableState: Reusability[State] =
+    Reusability.byRef[State]
 
   private final case class Backend($: BackendScope[Props, State]){
 
@@ -44,37 +48,40 @@ object FilteringDialog {
         P.cols.map(col ⇒ MuiMenuItem(key = col.ref.toString, value = col, primaryText = col.name.value)()).toJsArray
 
       val onChangedCol: (ReactEvent, Int, ColumnDesc) ⇒ Callback =
-        (e, idx, col) ⇒ $.modState(_.copy(chosenColumn = col, valueU = js.undefined))
+        (e, idx, col) ⇒ $.modState(_.copy(chosenColumn = col, valueOpt = None))
 
       def renderedDropdown(chosenColumn: ColumnDesc): ReactElement =
         MuiDropDownMenu(value = chosenColumn, onChange = onChangedCol)(renderedCols)
 
+      val onParamsChanged: Option[Filter] ⇒ Callback =
+        of ⇒ P.sendAction(FetchFilteredData(P.editorId, of))
+
       def onApply(c: ColumnDesc)(text: StrValue): ReactEvent ⇒ Callback =
-        _ ⇒ P.closeDialog >> P.onParamsChange(Filter(c.ref, text).some)
+        _ ⇒ P.closeDialog >> onParamsChanged(Filter(c.ref, text).some)
 
       val onClear: ReactEvent ⇒ Callback =
-        _ ⇒ P.closeDialog >> P.onParamsChange(None)
+        _ ⇒ P.closeDialog >> onParamsChanged(None)
 
       val clearBtn: ReactElement =
         Button(
-          labelU   = "Clear filter",
-          onClickU = onClear,
-          tpe      = Button.Normal
+          labelOpt   = "Clear filter",
+          onClickOpt = Some(onClear),
+          tpe        = Button.Normal
         )
     }
 
     val onTextChange: StrValue ⇒ Callback =
-      v ⇒ $.modState(_.copy(valueU = v))
+      v ⇒ $.modState(_.copy(valueOpt = Some(v)))
 
     def render(P: Props, S: State): ReactElement = {
       val fp = fromProps.value()
 
       val applyBtn: ReactElement =
         Button(
-          labelU    = "Apply filter",
-          onClickU  = S.valueU.map(fp.onApply(S.chosenColumn)),
-          tpe       = Button.Primary,
-          enabled   = S.valueU.isDefined
+          labelOpt   = "Apply filter",
+          onClickOpt = S.valueOpt.map(fp.onApply(S.chosenColumn)),
+          tpe        = Button.Primary,
+          enabled    = S.valueOpt.isDefined
         )
 
       MuiDialog(title   = "Filtering",
@@ -84,13 +91,14 @@ object FilteringDialog {
           TableStyle.row,
           fp.renderedDropdown(S.chosenColumn),
           TableCell.createMode(
-            cachedDataOpt = P.cachedDataOpt,
-            updateU       = onTextChange,
-            col           = S.chosenColumn,
-            clearError    = Callback.empty,
-            valueU        = S.valueU,
-            errorU        = js.undefined,
-            inputEnabled  = true
+            sendAction         = P.sendAction,
+            cachedDataOpt      = P.cachedDataOpt,
+            editorId           = P.editorId,
+            col                = S.chosenColumn,
+            valueOpt           = S.valueOpt,
+            validationErrorOpt = None,
+            inputEnabled       = true,
+            onUpdateOpt        = Some(onTextChange)
           )
         )
       )
@@ -101,7 +109,7 @@ object FilteringDialog {
     ReactComponentB[Props]("Filtering")
       .initialState_P(P ⇒ State(P, P.initial))
       .renderBackend[Backend]
-      .configure(ComponentUpdates.inferred("Filtering"))
+      .configure(ShouldUpdate.apply)
       .componentWillReceiveProps(receiveProps ⇒
         receiveProps.$.setState(State(receiveProps.nextProps, receiveProps.nextProps.initial))
       ).build

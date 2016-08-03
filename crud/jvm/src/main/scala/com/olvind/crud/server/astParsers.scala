@@ -51,10 +51,11 @@ trait astParsers extends integrationSlick {
            * do some sneaky rewriting because `rep` doesn't belong to `q`,
            * that is the generated reference doesn't match
            */
-          val repR = rep.toNode match {
-            case OptionApply(s: Select) ⇒ OptionApply(s.copy(in = Ref(gen)))
-            case s: Select              ⇒ s.copy(in = Ref(gen))
-          }
+          val repR: UnaryNode =
+            rep.toNode match {
+              case OptionApply(s: Select) ⇒ OptionApply(s.copy(in = Ref(gen)))
+              case s: Select              ⇒ s.copy(in = Ref(gen))
+            }
 
           resolver(repR).head
       }
@@ -164,7 +165,7 @@ trait astParsers extends integrationSlick {
 
               case other ⇒
                 val rendered = (nameSym.name, ch.flatMap(innerResolve).map(_.name.value).toList) match {
-                  case (fn, one :: two :: Nil) if fn.length == 1 ⇒
+                  case (fn, one :: two :: Nil) if fn.length =:= 1 ⇒
                     s"$one $fn $two"
                   case (fn, args) ⇒
                     s"$fn(${args.mkString(", ")})"

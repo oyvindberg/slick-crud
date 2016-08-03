@@ -49,26 +49,25 @@ trait integrationUnfiltered extends serverEditors with integrationUpickle {
                           s:    List[String],
                           r:    Autowire.Router,
                           name: String): ResponseFunction[Any] = {
+      val t0 = System.currentTimeMillis
 
-      Clock { c ⇒
-        def outStr(msg: String): String =
-          c.withTd(td ⇒ s"$name(${s.mkString(", ")}): $msg (in ${td.toMillis} ms)")
+      def outStr(msg: String): String =
+        s"$name(${s.mkString(", ")}): $msg (in ${System.currentTimeMillis - t0} ms)"
 
-        Try(read[Map[String, String]](body)) match {
-          case Success(parsed) ⇒
-            val f: Future[String] = r(autowire.Core.Request(s, parsed))
-            Try(Await.result(f, Duration.Inf)) match {
-              case Success(result) ⇒
-                logger.debug(outStr(s"Succeeded with params $parsed"))
-                JsonContent ~~> ResponseString(result)
-              case Failure(th)     ⇒
-                logger.warn(outStr(s"Failed with params $parsed"), th)
-                BadRequest
-            }
-          case Failure(th) ⇒
-            logger.warn(outStr(s"Failed: couldn't parse args $body"), th)
-            BadRequest
-        }
+      Try(read[Map[String, String]](body)) match {
+        case Success(parsed) ⇒
+          val f: Future[String] = r(autowire.Core.Request(s, parsed))
+          Try(Await.result(f, Duration.Inf)) match {
+            case Success(result) ⇒
+              logger.debug(outStr(s"Succeeded with params $parsed"))
+              JsonContent ~~> ResponseString(result)
+            case Failure(th)     ⇒
+              logger.warn(outStr(s"Failed with params $parsed"), th)
+              BadRequest
+          }
+        case Failure(th) ⇒
+          logger.warn(outStr(s"Failed: couldn't parse args $body"), th)
+          BadRequest
       }
     }
 
@@ -80,7 +79,7 @@ trait integrationUnfiltered extends serverEditors with integrationUpickle {
         val isr  = new InputStreamReader(is, "UTF-8")
         val a    = Array.ofDim[Char](10000)
         var read = 0
-        while ({read = isr.read(a); read != -1}){
+        while ({read = isr.read(a); read =/= -1}){
           writer.write(a, 0, read)
         }
 
@@ -112,10 +111,10 @@ trait integrationUnfiltered extends serverEditors with integrationUpickle {
           handleRoute(Body.string(req), s, Autowire.route[Editors](EditorList), name)
         }
 
-      case req@ContextPath(_, Seg(script :: Nil)) if scripts contains script ⇒
+      case req@ContextPath(_, Seg(script :: Nil)) ⇒
         authorizeUser(req) {
           Option(getClass.getResourceAsStream(s"/$script"))
-            .fold[ResponseFunction[Any]](NotFound)(ResponseStream)
+            .fold[ResponseFunction[Any]](NotFound)(is ⇒ JsonContent ~~> ResponseStream(is))
         }
     }
   }

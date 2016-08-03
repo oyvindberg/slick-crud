@@ -2,61 +2,50 @@ package com.olvind.crud
 package frontend
 
 import japgolly.scalajs.react._
+import japgolly.scalajs.react.extra.{Reusability, ReusableFn}
 import japgolly.scalajs.react.vdom.prefix_<^._
 
-import scala.scalajs.js
 import scalacss.ScalaCssReact._
 
-object EditorLinkedSingleRow
-  extends EditorBaseSingleRow
-  with EditorBaseUpdaterLinked {
+object EditorLinkedSingleRow {
 
   final case class Props(
-    base:       EditorBaseProps,
-    linkedRow:  StrLinkedRows,
-    reload:     Callback,
-    createElem: ReactElement) extends PropsBUL {
+    sendAction:    ReusableFn[Action, Callback],
+    editor:        EditorDesc,
+    cachedDataOpt: Option[CachedData],
+    linkedRow:     StrLinkedRows,
+    reload:        Callback,
+    createElem:    ReactElement) {
 
     def row: StrTableRow =
       linkedRow.rows.head
   }
 
-  final case class State(
-    validationFails: Map[Option[StrRowId], Seq[ValidationError]],
-    showCreate:      Boolean,
-    cachedDataOpt:   Option[CachedData]) extends StateB[State]{
+  final case class State(showCreate: Boolean)
 
-    override def withCachedData(cd: CachedData): State =
-      copy(cachedDataOpt = cd.some)
+  private implicit val ReusableProps: Reusability[Props] =
+    Reusability.by((P: Props) => (P.editor, P.cachedDataOpt, P.linkedRow))
 
-    override def withValidationFails(rowOpt: Option[StrRowId], ves: Seq[ValidationError]): State =
-      copy(validationFails = validationFails.updated(rowOpt, ves))
-  }
+  private implicit val ReusableState: Reusability[State] =
+    Reusability.byRef[State]
 
-  private final case class Backend($: BackendScope[Props, State])
-    extends BackendBUL[Props, State]{
+  private final case class Backend($: BackendScope[Props, State]) {
 
-    override implicit val r = ComponentUpdates.InferredReusability[Props]
+    val toggleShowCreate: Callback =
+      $.modState(S ⇒ S.copy(showCreate = !S.showCreate))
 
-    val toggleShowCreate: ReactEvent ⇒ Callback =
-      e ⇒ $.modState(S ⇒ S.copy(showCreate = !S.showCreate))
-
-    override def render(P: Props, S: State): ReactElement = {
-      val fp = fromProps.value()
+    def render(P: Props, S: State): ReactElement = {
       <.div(
         TableStyle.container,
         EditorToolbar(EditorToolbar.Props(
-          editorDesc        = P.editorDesc,
-          rows              = 1,
-          cachedDataOpt     = S.cachedDataOpt,
-          filterU           = js.undefined,
-          openFilterDialogU = js.undefined,
-          isLinkedU         = P.linkedRow,
-          refreshU          = P.reload,
-          showAllU          = fp.showAllRows,
-          deleteU           = P.row.idOpt.asUndef map deleteRow,
-          showCreateU       = (S.showCreate, toggleShowCreate),
-          customElemU       = js.undefined
+          editorDesc    = P.editor,
+          rows          = 1,
+          refresh       = P.reload,
+          showAll       = P.sendAction(Navigate(RouteEditor(P.editor.editorId))),
+          cachedDataOpt = P.cachedDataOpt,
+          isLinkedOpt   = Some(P.linkedRow),
+          deleteOpt     = P.row.idOpt.map(rowId ⇒ P.sendAction(DeleteRow(P.editor.editorId, rowId))),
+          showCreateOpt = Some(toggleShowCreate)
         )),
         <.div(
           TableStyle.table,
@@ -64,35 +53,42 @@ object EditorLinkedSingleRow
             TableStyle.nested,
             P.createElem.some.filter(_ ⇒ S.showCreate)
           ),
-          forColumns(P.editorDesc, P.row, S.validationFails)(
-            (t, col, uid, uv, ue) ⇒
+          P.row.values.zip(P.editor.columns).map{
+            case (value: StrValue, col) ⇒
               <.div(
                 TableStyle.row,
                 TableHeaderCell(TableHeaderCell.Props(
                   col,
-                  t.mainTable,
-                  js.undefined
+                  P.editor.mainTable,
+                  None
                 )),
+
                 TableCell(
-                  clearError     = clearValidationFail(P.row.idOpt),
-                  cachedDataOpt  = S.cachedDataOpt,
-                  updateU        = P.row.idOpt.map(updateValue).asUndef,
-                  showSingleRowU = fp.showSingleRow)(
-                  t, col, uid, uv, ue)
+                  sendAction         = P.sendAction,
+                  editorDesc         = P.editor,
+                  col                = col,
+                  rowIdOpt           = P.row.idOpt,
+                  cachedDataOpt      = P.cachedDataOpt,
+                  valueOpt           = Some(value),
+                  validationErrorOpt = None, //???,
+//                  clearError         = clearValidationFail(P.row.idOpt),
+                  onUpdateOpt        = P.row.idOpt.map(
+                    rowId ⇒ (value: StrValue) ⇒ P.sendAction(UpdateValue(P.editor.editorId, rowId, col.ref, value))
+                  )
               )
-          )
+            )
+          }
         )
       )
     }
   }
   
   private val component =
-    ReactComponentB[Props]("EditorSingleRow")
-    .initialState_P(P ⇒ State(Map.empty, showCreate = false, P.base.cachedDataOpt))
-    .renderBackend[Backend]
-    .configure(ComponentUpdates.inferred("EditorSingleRow"))
-    .componentDidMount(_.backend.init)
-    .build
+    ReactComponentB[Props]("EditorLinkedSingleRow")
+      .initialState_P(P ⇒ State(showCreate = false))
+      .renderBackend[Backend]
+      .configure(ShouldUpdate.apply)
+      .build
 
   def apply(p: Props): ReactElement =
     component(p)

@@ -29,20 +29,20 @@ trait Editor {
   def delete        (user: UserInfo, idStr: StrRowId): Future[XRes[Unit]]
 }
 
-case class UserInfo   (value: String) extends AnyVal
-case class ColumnName (value: String) extends AnyVal
-case class TableName  (value: String) extends AnyVal
-case class EditorName (value: String) extends AnyVal
-case class EditorId   (value: String) extends AnyVal
+final case class UserInfo   (value: String) extends AnyVal
+final case class ColumnName (value: String) extends AnyVal
+final case class TableName  (value: String) extends AnyVal
+final case class EditorName (value: String) extends AnyVal
+final case class EditorId   (value: String) extends AnyVal
 
-case class ColumnRef(
+final case class ColumnRef(
   table:     TableName,
   name:      ColumnName,
   isAutoInc: Boolean){
   override def toString = s"${table.value}(${name.value}})"
 }
 
-case class ColumnDesc(
+final case class ColumnDesc(
   ref:        ColumnRef,
   typename:   Typename,
   rendering:  RenderHint,
@@ -51,7 +51,7 @@ case class ColumnDesc(
   val name = ref.name
 }
 
-case class EditorDesc(
+final case class EditorDesc(
   editorName: EditorName,
   editorId:   EditorId,
   mainTable:  TableName,
@@ -64,29 +64,31 @@ case class EditorDesc(
 }
 
 
-case class StrTableRow(
+final case class StrTableRow(
   idOpt:  Option[StrRowId],
   values: Seq[StrValue]
 )
 
-case class StrValue(value: String) extends AnyVal {
+final case class StrValue(value: String) extends AnyVal {
   def asId = StrRowId(value)
 }
-case class StrRowId(value: String) extends AnyVal {
+
+final case class StrRowId(value: String) extends AnyVal {
   def asValue = StrValue(value)
 }
-case class StrLinkedRows(
+
+final case class StrLinkedRows(
   editorId:  EditorId,
   fromCol:   ColumnRef,
   toCol:     ColumnRef,
   rows:      Seq[StrTableRow]
 )
 
-case class CachedData(
+final case class CachedData(
   restrictedValues: RestrictedValues,
   tableLength:      TableLength){
   override val toString =
     s"CachedData(${restrictedValues.size}, $tableLength)"
 }
 
-case class TableLength(rows: Int) extends AnyVal
+final case class TableLength(rows: Int) extends AnyVal

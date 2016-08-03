@@ -89,16 +89,16 @@ trait tableMetadata extends astParsers {
       val parsedValues: Seq[Either[(ColumnRef, Option[DecodeFail]), Any]] =
         stringifiers map {
           case (columnRef, stringifier) ⇒
-              values get columnRef match {
-                case Some(paramValue) ⇒
-                  stringifier decode paramValue.value match {
-                    case Left(fail) => Left((columnRef, fail.some))
-                    case Right(any) => Right(any)
-                  }
-                case None ⇒
-                  if (columnRef.isAutoInc) Right(null) //YOLO
-                  else                     Left((columnRef, None))
-              }
+            values get columnRef match {
+              case Some(paramValue) ⇒
+                stringifier decode paramValue.value match {
+                  case Left(fail) => Left((columnRef, fail.some))
+                  case Right(any) => Right(any)
+                }
+              case None ⇒
+                if (columnRef.isAutoInc) Right(null) //YOLO
+                else                     Left((columnRef, None))
+            }
         }
       sequence(parsedValues).right map packValues match {
         case Right(p) => XSuccess(p)

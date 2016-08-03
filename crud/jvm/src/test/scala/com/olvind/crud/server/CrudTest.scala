@@ -1,12 +1,14 @@
-package com.olvind.crud.server
+package com.olvind.crud
+package server
 
 import java.util.UUID
 
-import com.olvind.crud._
 import com.olvind.stringifiers.Stringifier
 import com.typesafe.slick.testkit.util._
 import org.junit.Assert
 import slick.dbio.Effect.Write
+
+import scala.language.implicitConversions
 
 class CrudTest
   extends TypedAsyncTest[JdbcTestDB]
@@ -49,7 +51,7 @@ class CrudTest
   def rowContains(shouldContain: Boolean,
                   needle:        StrValue)
                  (haystack:      StrTableRow): Boolean =
-    shouldContain == haystack.values.exists(_ =:= needle)
+    shouldContain =:= haystack.values.exists(_ =:= needle)
 
   implicit class XXX(haystack: Option[StrTableRow]) {
     def shouldContain(shouldContain: Boolean,
@@ -64,7 +66,7 @@ class CrudTest
 
   implicit class YY(haystack: Seq[StrTableRow]) {
     def shouldContain(shouldContain: Boolean, needle: StrValue): Unit = {
-      val ret = shouldContain == haystack.exists(rowContains(shouldContain, needle))
+      val ret = shouldContain =:= haystack.exists(rowContains(shouldContain, needle))
       Assert.assertEquals(s"$haystack should ${if (shouldContain) "" else " not "} contain $needle", shouldContain, ret)
     }
   }
