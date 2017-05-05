@@ -15,9 +15,9 @@ It provides the following features:
 
 slick-crud is available for slick 3.0.0 on scala 2.11.
  
-Initial idea and implementation by [@teigen][teigen], maintenance/rewrite by [@elacin][elacin]
+Initial idea and implementation by [@teigen][teigen], originally written for penger.no, maintenance/rewrite by [@oyvindberg][oyvindberg]
 
-[Demo application](https://slick-crud.herokuapp.com)
+[Demo application](http://olvind.com/slick-crud)
 
 ## Usage
 
@@ -26,29 +26,24 @@ slick-crud requires tables with a single (non-composite) primary key. It also re
  If your table is projected to a type other than a Tuple, you also need to use `mappedCellRow()`
  to provide mapping back and forth to a tuple representation.
 
+Furthermore, you need to connect the javascript generated from the scala.js frontend and make it available from your web application.
+
 A complete, runnable example is available [here][demo].
 
 Run it by cloning the git project and run `sbt run`
 
-
-## Implementation
-
-The bundled [concretization][crud-unfiltered] of slick-crud uses [unfiltered][unfiltered]
-for http, and Html5 with to render the frontend.
-The core of slick-crud is kept abstract, without much knowledge of neither, hence it should be relatively
-easy to replace any if they don't fit your preferences.
 
 ## Status
 Slick doesn't exactly enable this use out of the box, which resulted in some [hairy][columnPicker] [code][astParser].
 Although we have used this for a long while internally, we fully expect there to be issues as people use
 it more creatively. Bug reports welcome :)
 
+The Scala.js frontend mostly works, but could still need a lot of love.
+
 We will try to keep the public API relatively constant, but no guarantees just yet.
 
 [teigen]: https://github.com/teigen
-[elacin]: https://github.com/elacin
-[demo]: demo/src/main/scala/no/penger/crud/CrudDemoWebApp.scala
-[crud-unfiltered]: unfiltered/src/main/scala/no/penger/crud
-[unfiltered]: https://github.com/unfiltered/unfiltered
-[columnPicker]: core/src/main/scala/no/penger/crud/columnPicker.scala
-[astParser]: core/src/main/scala/no/penger/crud/astParser.scala
+[oyvindberg]: https://github.com/oyvindberg
+[demo]: demo/src/main/scala/com/olvind/crud/demo/CrudDemoWebApp.scala
+[columnPicker]: crud/jvm/src/main/scala/com/olvind/crud/server/columnPickers.scala
+[astParser]: crud/jvm/src/main/scala/com/olvind/crud/server/astParsers.scala
